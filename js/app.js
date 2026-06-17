@@ -21,6 +21,7 @@ const elements = {
   btnCloseHistory: document.getElementById('btnCloseHistory'),
   activityDrawer: document.getElementById('activityDrawer'),
   drawerOverlay: document.getElementById('drawerOverlay'),
+  historyList: document.getElementById('historyList'),
   
   // Header
   activeListTitle: document.getElementById('activeListTitle'),
