@@ -1075,13 +1075,11 @@ h2, .headline-md {
   background-color: var(--color-background);
   z-index: 1000;
   overflow-y: auto; /* Enable scroll on small screens */
-  padding: 1.5rem 1rem;
+  padding: 1rem;
 }
 
 .setup-overlay.open {
-  display: flex;
-  justify-content: center;
-  align-items: flex-start; /* Start from top to allow scrolling */
+  display: block; /* Use block to allow native scrolling of card wrapper */
 }
 
 .setup-card {
@@ -1095,7 +1093,7 @@ h2, .headline-md {
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
-  margin: auto; /* Centers card vertically when height is sufficient */
+  margin: 1rem auto; /* horizontal centering with vertical margins */
 }
 
 .setup-title {
