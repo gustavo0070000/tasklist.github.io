@@ -2,17 +2,21 @@
 
 let lastLoggedId = null;
 let notificationSound = null;
+let lastKnownReactions = {}; // logId -> stringified reactions
 
 // Initialize notifications state
 export function initNotifications(initialHistory) {
   // Store the ID of the most recent log so we don't notify on startup
   if (initialHistory && initialHistory.length > 0) {
     lastLoggedId = initialHistory[0].id;
+    
+    // Populate initial reactions to avoid notifying on start
+    initialHistory.forEach(log => {
+      lastKnownReactions[log.id] = JSON.stringify(log.reactions || {});
+    });
   }
   
-  // Preload a soft, zen notification sound (using audio synthesis or public audio URL if available)
-  // Here we use a Web Audio API synthesizer for a beautiful, custom, lightweight zen sound!
-  // This avoids requiring external audio asset files.
+  // Preload sound
   try {
     const AudioContext = window.AudioContext || window.webkitAudioContext;
     if (AudioContext) {
@@ -156,4 +160,48 @@ export function checkNewActivities(history, currentUser) {
       showNotification(title, body);
     }
   }
+}
+
+// Check for new emoji reactions by the OTHER user
+export function checkNewReactions(history, currentUser) {
+  if (!history) return;
+  
+  const isFirstRun = Object.keys(lastKnownReactions).length === 0;
+  
+  history.forEach(log => {
+    const logId = log.id;
+    const reactions = log.reactions || {};
+    const stringified = JSON.stringify(reactions);
+    
+    if (isFirstRun) {
+      lastKnownReactions[logId] = stringified;
+      return;
+    }
+    
+    const previous = lastKnownReactions[logId];
+    if (previous !== stringified) {
+      // Find new reactions not made by current user
+      Object.keys(reactions).forEach(user => {
+        if (user !== currentUser) {
+          const prevReactions = previous ? JSON.parse(previous) : {};
+          if (!prevReactions[user]) {
+            // New reaction detected!
+            const emoji = reactions[user];
+            let description = "uma atividade";
+            if (log.action === 'complete_task') {
+              description = `você concluir "${log.taskTitle}"`;
+            } else if (log.action === 'add_task') {
+              description = `você adicionar "${log.taskTitle}"`;
+            }
+            
+            showNotification(
+              "Agradecimento recebido! ❤️", 
+              `${user} enviou um ${emoji} por ${description}!`
+            );
+          }
+        }
+      });
+      lastKnownReactions[logId] = stringified;
+    }
+  });
 }

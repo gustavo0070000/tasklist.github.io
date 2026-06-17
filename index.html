@@ -35,21 +35,44 @@
       </div>
       
       <div class="sidebar-scroll">
-        <!-- Smart Filters -->
+        <!-- Main Navigation (Tabs) -->
         <div class="sidebar-section">
           <ul class="nav-list">
             <li>
-              <a href="#" id="filterAll" class="nav-item active">
+              <a href="#" id="tabTasks" class="nav-item active">
                 <span class="nav-item-icon">📋</span>
-                <span>Todas as tarefas</span>
+                <span>Tarefas</span>
                 <span id="badgeCountAll" class="nav-item-badge">0</span>
               </a>
             </li>
             <li>
-              <a href="#" id="filterToday" class="nav-item">
-                <span class="nav-item-icon">⏰</span>
-                <span>Com tempo limite</span>
-                <span id="badgeCountToday" class="nav-item-badge">0</span>
+              <a href="#" id="tabCalendar" class="nav-item">
+                <span class="nav-item-icon">📅</span>
+                <span>Calendário</span>
+              </a>
+            </li>
+            <li>
+              <a href="#" id="tabProjects" class="nav-item">
+                <span class="nav-item-icon">🚀</span>
+                <span>Projetos</span>
+              </a>
+            </li>
+            <li>
+              <a href="#" id="tabNotes" class="nav-item">
+                <span class="nav-item-icon">📌</span>
+                <span>Mural</span>
+              </a>
+            </li>
+            <li>
+              <a href="#" id="tabWishlist" class="nav-item">
+                <span class="nav-item-icon">🎁</span>
+                <span>Desejos</span>
+              </a>
+            </li>
+            <li>
+              <a href="#" id="tabStats" class="nav-item">
+                <span class="nav-item-icon">🏆</span>
+                <span>Conquistas</span>
               </a>
             </li>
           </ul>
@@ -109,66 +132,169 @@
       <!-- Content Container -->
       <div id="mainContent" class="main-content" style="display: none;">
         
-        <!-- Add Task Card -->
-        <section class="quick-add-card">
-          <form id="addTaskForm" class="quick-add-form" onsubmit="return false;">
-            <div class="quick-add-input-row">
-              <span style="font-size: 1.25rem;">➕</span>
-              <input type="text" id="inputTaskTitle" class="input-task-title" placeholder="Adicionar nova tarefa..." required autocomplete="off">
-            </div>
-            
-            <div class="quick-add-controls">
-              <div class="controls-left">
-                <!-- Deadline picker -->
-                <div class="date-picker-wrapper">
-                  <span>⏰ Limite: </span>
-                  <input type="datetime-local" id="inputTaskDeadline">
-                </div>
-                
-                <!-- Responsibility select -->
-                <div class="owner-select-wrapper">
-                  <span>Para: </span>
-                  <select id="selectTaskOwner">
-                    <option value="Shared">👪 Compartilhado</option>
-                    <option value="Gus">Gus</option>
-                    <option value="Isa">Isa</option>
-                  </select>
-                </div>
+        <!-- View 1: Tasks Manager -->
+        <div id="viewTasks" class="tab-view active-view" style="display: flex; flex-direction: column; width: 100%; gap: 1.5rem;">
+          <!-- Special Quick filter row inside Tasks view -->
+          <div class="task-quick-filters" style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+            <button id="btnFilterMyTasks" class="btn-secondary" style="padding: 4px 12px; font-size: 12px; border-radius: var(--radius-full);">🙋 Atribuídas a mim</button>
+            <button id="btnFilterUrgentTasks" class="btn-secondary" style="padding: 4px 12px; font-size: 12px; border-radius: var(--radius-full);">🔥 Urgentes / Atrasadas</button>
+            <button id="btnClearQuickFilters" class="btn-secondary" style="padding: 4px 12px; font-size: 12px; border-radius: var(--radius-full); display: none; color: var(--color-error); border-color: var(--color-error);">Limpar Filtros</button>
+          </div>
+
+          <!-- Add Task Card -->
+          <section class="quick-add-card">
+            <form id="addTaskForm" class="quick-add-form" onsubmit="return false;">
+              <div class="quick-add-input-row">
+                <span style="font-size: 1.25rem;">➕</span>
+                <input type="text" id="inputTaskTitle" class="input-task-title" placeholder="Adicionar nova tarefa..." required autocomplete="off">
               </div>
               
-              <button type="submit" id="btnAddTask" class="btn-add-task">Adicionar</button>
+              <div class="quick-add-controls">
+                <div class="controls-left">
+                  <!-- Deadline picker -->
+                  <div class="date-picker-wrapper">
+                    <span>⏰ Limite: </span>
+                    <input type="datetime-local" id="inputTaskDeadline">
+                  </div>
+                  
+                  <!-- Responsibility select -->
+                  <div class="owner-select-wrapper">
+                    <span>Para: </span>
+                    <select id="selectTaskOwner">
+                      <option value="Shared">👪 Compartilhado</option>
+                      <option value="Gus">Gus</option>
+                      <option value="Isa">Isa</option>
+                    </select>
+                  </div>
+
+                  <!-- Priority select -->
+                  <div class="owner-select-wrapper">
+                    <span>Prioridade: </span>
+                    <select id="selectTaskPriority">
+                      <option value="Medium">🟡 Média</option>
+                      <option value="High">🔴 Alta</option>
+                      <option value="Low">🟢 Baixa</option>
+                    </select>
+                  </div>
+                </div>
+                
+                <button type="submit" id="btnAddTask" class="btn-add-task">Adicionar</button>
+              </div>
+            </form>
+          </section>
+          
+          <!-- Empty State View -->
+          <div id="emptyStateView" class="empty-state" style="display: none;">
+            <div class="empty-state-icon">🌸</div>
+            <h3 class="empty-state-title">Tudo limpo por aqui!</h3>
+            <p class="empty-state-desc">Aproveitem o momento de paz ou adicionem novas tarefas acima.</p>
+          </div>
+          
+          <!-- To-Do Section -->
+          <section id="todoSection">
+            <div class="task-section-header">
+              <span>Para Fazer</span>
+              <span id="todoCount">0</span>
             </div>
-          </form>
-        </section>
-        
-        <!-- Empty State View -->
-        <div id="emptyStateView" class="empty-state" style="display: none;">
-          <div class="empty-state-icon">🌸</div>
-          <h3 class="empty-state-title">Tudo limpo por aqui!</h3>
-          <p class="empty-state-desc">Aproveitem o momento de paz ou adicionem novas tarefas acima.</p>
+            <div id="todoTaskList" class="task-list">
+              <!-- Dynamic task cards -->
+            </div>
+          </section>
+          
+          <!-- Completed Section -->
+          <section id="completedSection">
+            <div class="task-section-header">
+              <span>Concluídas</span>
+              <span id="completedCount">0</span>
+            </div>
+            <div id="completedTaskList" class="task-list">
+              <!-- Dynamic task cards -->
+            </div>
+          </section>
         </div>
-        
-        <!-- To-Do Section -->
-        <section id="todoSection">
-          <div class="task-section-header">
-            <span>Para Fazer</span>
-            <span id="todoCount">0</span>
+
+        <!-- View 2: Calendar View -->
+        <div id="viewCalendar" class="tab-view" style="display: none; width: 100%; flex-direction: column; gap: 1.5rem;">
+          <div class="calendar-header" style="display: flex; align-items: center; justify-content: space-between; background-color: var(--color-surface); padding: 1rem; border-radius: var(--radius-lg); border: var(--border-standard); box-shadow: var(--shadow-level-1);">
+            <button id="btnPrevMonth" class="btn-secondary">◀</button>
+            <h3 id="calendarMonthTitle" class="headline-md" style="margin: 0;">Junho 2026</h3>
+            <button id="btnNextMonth" class="btn-secondary">▶</button>
           </div>
-          <div id="todoTaskList" class="task-list">
-            <!-- Dynamic task cards -->
+          <div id="calendarGrid" class="calendar-grid" style="background-color: var(--color-surface); border-radius: var(--radius-lg); border: var(--border-standard); padding: 1rem; box-shadow: var(--shadow-level-1);">
+            <!-- Calendar renders dynamically -->
           </div>
-        </section>
-        
-        <!-- Completed Section -->
-        <section id="completedSection">
-          <div class="task-section-header">
-            <span>Concluídas</span>
-            <span id="completedCount">0</span>
+        </div>
+
+        <!-- View 3: Projects & Goals -->
+        <div id="viewProjects" class="tab-view" style="display: none; width: 100%; flex-direction: column; gap: 1.5rem;">
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <h3 class="headline-md">Grandes Metas & Sonhos</h3>
+            <button id="btnOpenAddProjectModal" class="btn-primary">+ Novo Projeto</button>
           </div>
-          <div id="completedTaskList" class="task-list">
-            <!-- Dynamic task cards -->
+          <div id="projectsListContainer" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1.5rem; width: 100%;">
+            <!-- Dynamic project cards -->
           </div>
-        </section>
+        </div>
+
+        <!-- View 4: Mural (Sticky Notes) -->
+        <div id="viewNotes" class="tab-view" style="display: none; width: 100%; flex-direction: column; gap: 1.5rem;">
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <h3 class="headline-md">Mural de Recados</h3>
+            <button id="btnOpenAddNoteModal" class="btn-primary">+ Deixar Recado</button>
+          </div>
+          <div id="notesGrid" class="notes-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1.5rem; width: 100%;">
+            <!-- Dynamic sticky notes -->
+          </div>
+        </div>
+
+        <!-- View 5: Wishlist -->
+        <div id="viewWishlist" class="tab-view" style="display: none; width: 100%; flex-direction: column; gap: 1.5rem;">
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <h3 class="headline-md">Lista de Desejos / Presentes</h3>
+            <button id="btnOpenAddWishModal" class="btn-primary">+ Adicionar Desejo</button>
+          </div>
+          
+          <div class="wishlist-sections" style="display: flex; flex-direction: column; gap: 2rem; width: 100%;">
+            <section class="wishlist-category">
+              <div class="task-section-header">🎁 Desejos de Gus</div>
+              <div id="wishlistGus" class="wishlist-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 1rem;">
+                <!-- Dynamic cards -->
+              </div>
+            </section>
+            <section class="wishlist-category">
+              <div class="task-section-header">🎁 Desejos de Isa</div>
+              <div id="wishlistIsa" class="wishlist-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 1rem;">
+                <!-- Dynamic cards -->
+              </div>
+            </section>
+            <section class="wishlist-category">
+              <div class="task-section-header">🎁 Desejos Compartilhados</div>
+              <div id="wishlistShared" class="wishlist-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 1rem;">
+                <!-- Dynamic cards -->
+              </div>
+            </section>
+          </div>
+        </div>
+
+        <!-- View 6: Stats & Achievements -->
+        <div id="viewStats" class="tab-view" style="display: none; width: 100%; flex-direction: column; gap: 2rem;">
+          <!-- Productivity Card -->
+          <div style="background-color: var(--color-surface); border-radius: var(--radius-xl); border: var(--border-standard); box-shadow: var(--shadow-level-1); padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem;">
+            <h3 class="headline-md" style="text-align: center; color: var(--color-primary);">🏆 Campeão de Produtividade da Semana</h3>
+            
+            <div id="statsSummaryContainer" style="display: flex; align-items: center; justify-content: space-around; gap: 1.5rem; flex-wrap: wrap; margin: 1rem 0;">
+              <!-- Dynamic stats indicators -->
+            </div>
+          </div>
+          
+          <!-- Achievements Grid -->
+          <section>
+            <div class="task-section-header">Conquistas Desbloqueadas</div>
+            <div id="achievementsGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 1.5rem; margin-top: 1rem;">
+              <!-- Dynamic achievement cards -->
+            </div>
+          </section>
+        </div>
         
       </div>
     </main>
@@ -269,11 +395,10 @@
           <div class="form-group">
             <label class="form-label">Grupo (Agrupador)</label>
             <select id="selectListGroup" class="form-control">
-              <!-- Dynamically populated, plus a 'Novo Grupo' option -->
+              <!-- Dynamically populated -->
             </select>
           </div>
           
-          <!-- Custom Input for New Group name, shown only when "Novo Grupo" is selected -->
           <div class="form-group" id="newGroupNameGroup" style="display: none;">
             <label class="form-label" for="inputNewGroupName">Nome do Novo Grupo</label>
             <input type="text" id="inputNewGroupName" class="form-control" placeholder="Ex: Viagens" autocomplete="off">
@@ -304,8 +429,124 @@
       </div>
     </div>
   </div>
-  
-  <!-- Settings Modal (Advanced config adjustments) -->
+
+  <!-- Modal: Novo Projeto -->
+  <div id="addProjectModal" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="headline-md">Nova Meta / Projeto</h3>
+        <button id="btnCloseAddProjectModal" class="btn-settings">✕</button>
+      </div>
+      <div class="modal-content">
+        <form id="addProjectForm" onsubmit="return false;" class="quick-add-form">
+          <div class="form-group">
+            <label class="form-label" for="inputProjectName">Nome do Projeto</label>
+            <input type="text" id="inputProjectName" class="form-control" placeholder="Ex: Viagens de Férias ✈️" required autocomplete="off">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="inputProjectTargetDate">Data-Alvo / Prazo</label>
+            <input type="datetime-local" id="inputProjectTargetDate" class="form-control" required>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button id="btnCancelAddProject" class="btn-secondary">Cancelar</button>
+        <button id="btnSaveProject" class="btn-primary">Criar Projeto</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Novo Recado (Mural) -->
+  <div id="addNoteModal" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="headline-md">Deixar Recado</h3>
+        <button id="btnCloseAddNoteModal" class="btn-settings">✕</button>
+      </div>
+      <div class="modal-content">
+        <form id="addNoteForm" onsubmit="return false;" class="quick-add-form">
+          <div class="form-group">
+            <label class="form-label" for="inputNoteText">Recado</label>
+            <textarea id="inputNoteText" class="form-control" rows="3" placeholder="Escreva algo carinhoso ou um aviso rápido..." required style="resize: none;"></textarea>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Cor do Post-it</label>
+            <div class="radio-group" style="gap: 0.5rem;">
+              <label class="radio-card" style="background-color: #fef08a; border-color: #facc15;">
+                <input type="radio" name="note_color" value="yellow" checked>
+                <span style="color: #854d0e;">Amarelo</span>
+              </label>
+              <label class="radio-card" style="background-color: #bfdbfe; border-color: #60a5fa;">
+                <input type="radio" name="note_color" value="blue">
+                <span style="color: #1e3a8a;">Azul</span>
+              </label>
+              <label class="radio-card" style="background-color: #fbcfe8; border-color: #f472b6;">
+                <input type="radio" name="note_color" value="pink">
+                <span style="color: #831843;">Rosa</span>
+              </label>
+              <label class="radio-card" style="background-color: #bbf7d0; border-color: #4ade80;">
+                <input type="radio" name="note_color" value="green">
+                <span style="color: #064e3b;">Verde</span>
+              </label>
+            </div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button id="btnCancelAddNote" class="btn-secondary">Cancelar</button>
+        <button id="btnSaveNote" class="btn-primary">Fixar Recado</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Novo Desejo (Wishlist) -->
+  <div id="addWishModal" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="headline-md">Adicionar Desejo</h3>
+        <button id="btnCloseAddWishModal" class="btn-settings">✕</button>
+      </div>
+      <div class="modal-content">
+        <form id="addWishForm" onsubmit="return false;" class="quick-add-form">
+          <div class="form-group">
+            <label class="form-label" for="inputWishTitle">Item Desejado</label>
+            <input type="text" id="inputWishTitle" class="form-control" placeholder="Ex: Livro Novo de Aventura" required autocomplete="off">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="inputWishLink">Link da Web (Opcional)</label>
+            <input type="url" id="inputWishLink" class="form-control" placeholder="https://amazon.com.br/..." autocomplete="off">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="inputWishNotes">Detalhes ou Notas</label>
+            <input type="text" id="inputWishNotes" class="form-control" placeholder="Tamanho, cor, observações..." autocomplete="off">
+          </div>
+          <div class="form-group">
+            <label class="form-label">De quem é este desejo?</label>
+            <div class="radio-group">
+              <label class="radio-card owner-gus">
+                <input type="radio" name="wish_owner" value="Gus">
+                <span>Gus</span>
+              </label>
+              <label class="radio-card owner-isa">
+                <input type="radio" name="wish_owner" value="Isa">
+                <span>Isa</span>
+              </label>
+              <label class="radio-card" style="border-color: var(--color-primary);">
+                <input type="radio" name="wish_owner" value="Shared" checked>
+                <span>👪 Ambos</span>
+              </label>
+            </div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button id="btnCancelAddWish" class="btn-secondary">Cancelar</button>
+        <button id="btnSaveWish" class="btn-primary">Adicionar Desejo</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings Modal -->
   <div id="settingsModal" class="modal-overlay">
     <div class="modal">
       <div class="modal-header">
@@ -318,6 +559,24 @@
           <button id="btnEnableNotifications" class="btn-secondary" style="width: 100%; text-align: center; display: flex; align-items: center; justify-content: center; gap: 8px;">
             <span>🔔 Ativar Notificações no Celular</span>
           </button>
+        </div>
+        <hr style="border: none; border-top: var(--border-standard);">
+        <div class="form-group">
+          <label class="form-label">🔗 Convite para Parceiro</label>
+          <button id="btnCopyInviteLink" class="btn-secondary" style="width: 100%; text-align: center; margin-bottom: 0.5rem; display: flex; align-items: center; justify-content: center; gap: 8px;">
+            <span>🔗 Copiar Link de Configuração Automática</span>
+          </button>
+          <div style="text-align: center; display: flex; flex-direction: column; align-items: center;">
+            <img id="inviteQrCode" src="" alt="QR Code de Convite" style="display: none; width: 140px; height: 140px; margin: 0.5rem auto; border: var(--border-standard); border-radius: var(--radius-default); padding: 4px; background: white;">
+            <span id="inviteQrCodeText" class="label-sm" style="color: var(--color-outline); display: none;">Aponte a câmera do outro celular para este código</span>
+          </div>
+        </div>
+        <hr style="border: none; border-top: var(--border-standard);">
+        <div class="form-group">
+          <label class="form-label">Integrar IFTTT (Resumo Matinal)</label>
+          <input type="text" id="setupIftttKey" class="form-control" placeholder="Chave do Webhook do IFTTT" style="margin-bottom: 0.5rem;">
+          <input type="text" id="setupIftttEvent" class="form-control" placeholder="Nome do Evento (ex: tasklist_summary)" value="tasklist_summary" style="margin-bottom: 0.5rem;">
+          <button id="btnTestIfttt" class="btn-secondary" style="width: 100%;">Disparar Teste de Webhook</button>
         </div>
         <hr style="border: none; border-top: var(--border-standard);">
         <div class="form-group">

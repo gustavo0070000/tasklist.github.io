@@ -1115,3 +1115,449 @@ h2, .headline-md {
   border-radius: var(--radius-sm);
   font-family: monospace;
 }
+
+/* Tab Views Layout */
+.tab-view {
+  display: none;
+}
+
+.tab-view.active-view {
+  display: flex;
+}
+
+/* Priority Task Indicators */
+.task-card.priority-high {
+  border-left: 4px solid var(--color-error);
+}
+
+.task-card.priority-medium {
+  border-left: 4px solid var(--color-warning);
+}
+
+.task-card.priority-low {
+  border-left: 4px solid var(--color-success);
+}
+
+/* Task Card Expand content */
+.task-card-expanded-content {
+  margin-top: 1rem;
+  border-top: 1px solid #f1f5f9;
+  padding-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  width: 100%;
+}
+
+.subtasks-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.subtask-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 13px;
+}
+
+.subtask-title {
+  flex: 1;
+  transition: all 0.2s ease;
+}
+
+.subtask-item.completed .subtask-title {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+.input-subtask-add {
+  border: none;
+  border-bottom: 1px dashed var(--color-outline-variant);
+  font-size: 13px;
+  padding: 4px 0;
+  outline: none;
+  background: transparent;
+  width: 100%;
+}
+
+.input-subtask-add:focus {
+  border-bottom-color: var(--color-primary);
+}
+
+.comments-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  background-color: var(--color-surface-container-low);
+  padding: 0.75rem;
+  border-radius: var(--radius-default);
+}
+
+.comment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.comment-item {
+  font-size: 12px;
+  line-height: 1.4;
+  background: white;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  border: var(--border-standard);
+}
+
+.comment-user {
+  font-weight: 700;
+  margin-right: 4px;
+}
+
+.comment-time {
+  font-size: 10px;
+  color: var(--color-outline);
+  float: right;
+  margin-left: 8px;
+}
+
+.comment-form {
+  display: flex;
+  gap: 4px;
+}
+
+.input-comment {
+  flex: 1;
+  border: var(--border-standard);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  font-size: 12px;
+  outline: none;
+}
+
+.input-comment:focus {
+  border-color: var(--color-primary);
+}
+
+.btn-comment-send {
+  background-color: var(--color-primary);
+  color: white;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+}
+
+/* Calendar Grid Styling */
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  background-color: #e2e8f0;
+}
+
+.calendar-day-header {
+  text-align: center;
+  font-weight: bold;
+  font-size: 11px;
+  padding: 8px 4px;
+  background-color: var(--color-surface-container-low);
+  color: var(--color-on-surface-variant);
+  text-transform: uppercase;
+}
+
+.calendar-cell {
+  background-color: white;
+  min-height: 80px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  position: relative;
+}
+
+.calendar-cell.other-month {
+  background-color: var(--color-surface-container-low);
+  color: var(--color-outline-variant);
+}
+
+.calendar-cell.today {
+  background-color: var(--color-primary-fixed);
+}
+
+.calendar-date-number {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.calendar-cell.today .calendar-date-number {
+  color: var(--color-primary);
+}
+
+.calendar-tasks-indicator {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-top: auto;
+}
+
+.calendar-task-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+}
+
+/* Projects Goal Cards */
+.project-card {
+  background-color: var(--color-surface);
+  border-radius: var(--radius-xl);
+  border: var(--border-standard);
+  box-shadow: var(--shadow-level-1);
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  transition: transform 0.2s, box-shadow 0.2s;
+  position: relative;
+}
+
+.project-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-level-2);
+}
+
+.project-countdown-chip {
+  align-self: flex-start;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-surface-container);
+  color: var(--color-on-surface);
+}
+
+.project-countdown-chip.urgent {
+  background-color: var(--color-warning-bg);
+  color: var(--color-warning-text);
+}
+
+.project-title {
+  font-size: 18px;
+  font-weight: 700;
+  word-break: break-word;
+}
+
+.project-delete-btn {
+  position: absolute;
+  top: 1.5rem;
+  right: 1.5rem;
+  color: var(--color-outline);
+  opacity: 0.5;
+}
+
+.project-delete-btn:hover {
+  opacity: 1;
+  color: var(--color-error);
+}
+
+/* Mural Sticky Notes */
+.notes-grid {
+  padding: 0.5rem 0;
+}
+
+.note-card {
+  background-color: #fef08a;
+  box-shadow: 0px 10px 15px -3px rgba(0, 0, 0, 0.05), 0px 4px 6px -2px rgba(0, 0, 0, 0.05);
+  padding: 1.25rem;
+  min-height: 180px;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  transition: transform 0.2s;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(0,0,0,0.05);
+}
+
+.note-card:hover {
+  transform: scale(1.03) rotate(0deg) !important;
+  z-index: 10;
+  box-shadow: var(--shadow-level-2);
+}
+
+.note-card::before {
+  content: "📌";
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 1.25rem;
+}
+
+.note-text {
+  font-size: 14px;
+  line-height: 1.5;
+  color: #451a03;
+  flex: 1;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.note-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 1rem;
+  font-size: 10px;
+  color: var(--color-outline);
+  border-top: 1px dashed rgba(0,0,0,0.08);
+  padding-top: 0.5rem;
+}
+
+.note-delete-btn {
+  color: var(--color-outline);
+}
+
+.note-delete-btn:hover {
+  color: var(--color-error);
+}
+
+.note-yellow { background-color: #fef08a; color: #451a03; }
+.note-blue { background-color: #bfdbfe; color: #1e3a8a; }
+.note-pink { background-color: #fbcfe8; color: #831843; }
+.note-green { background-color: #bbf7d0; color: #064e3b; }
+
+/* Wishlist Cards */
+.wish-card {
+  background-color: var(--color-surface);
+  border: var(--border-standard);
+  border-radius: var(--radius-lg);
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  position: relative;
+  box-shadow: var(--shadow-level-1);
+}
+
+.wish-title {
+  font-size: 15px;
+  font-weight: 600;
+  padding-right: 20px;
+}
+
+.wish-desc {
+  font-size: 12px;
+  color: var(--color-on-surface-variant);
+  word-break: break-word;
+}
+
+.wish-link-btn {
+  align-self: flex-start;
+  font-size: 11px;
+  font-weight: bold;
+  text-decoration: none;
+  color: var(--color-primary);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background-color: var(--color-primary-fixed);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  margin-top: 4px;
+}
+
+.wish-delete-btn {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  font-size: 12px;
+  color: var(--color-outline);
+}
+
+.wish-delete-btn:hover {
+  color: var(--color-error);
+}
+
+/* Achievements Badges */
+.achievement-card {
+  background-color: var(--color-surface);
+  border: var(--border-standard);
+  border-radius: var(--radius-lg);
+  padding: 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  box-shadow: var(--shadow-level-1);
+  transition: all 0.2s ease;
+}
+
+.achievement-icon {
+  font-size: 2.25rem;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--color-surface-container-low);
+  border-radius: var(--radius-full);
+}
+
+.achievement-info {
+  flex: 1;
+}
+
+.achievement-title {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.achievement-desc {
+  font-size: 11px;
+  color: var(--color-on-surface-variant);
+  margin-top: 2px;
+}
+
+.achievement-card.locked {
+  opacity: 0.5;
+  background-color: var(--color-surface-container-low);
+}
+
+.achievement-card.locked .achievement-icon {
+  filter: grayscale(100%);
+}
+
+.achievement-card.unlocked {
+  border-color: var(--color-primary-fixed-dim);
+  background: linear-gradient(to right, white, var(--color-primary-fixed));
+  box-shadow: var(--shadow-level-2);
+}
+
+/* History Log Reactions */
+.history-reactions-row {
+  display: flex;
+  gap: 0.25rem;
+  margin-top: 6px;
+}
+
+.btn-history-reaction {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-surface-container-low);
+  border: var(--border-standard);
+  color: var(--color-on-surface-variant);
+}
+
+.btn-history-reaction:hover, .btn-history-reaction.active {
+  background-color: var(--color-primary-fixed);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.btn-history-reaction.active {
+  font-weight: bold;
+}
+
