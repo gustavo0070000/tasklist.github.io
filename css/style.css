@@ -1074,13 +1074,14 @@ h2, .headline-md {
   bottom: 0;
   background-color: var(--color-background);
   z-index: 1000;
-  align-items: center;
-  justify-content: center;
-  padding: 1.5rem;
+  overflow-y: auto; /* Enable scroll on small screens */
+  padding: 1.5rem 1rem;
 }
 
 .setup-overlay.open {
   display: flex;
+  justify-content: center;
+  align-items: flex-start; /* Start from top to allow scrolling */
 }
 
 .setup-card {
@@ -1090,10 +1091,11 @@ h2, .headline-md {
   box-shadow: var(--shadow-level-2);
   width: 100%;
   max-width: 480px;
-  padding: 2rem;
+  padding: 1.5rem; /* smaller padding for mobile height */
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: 1.25rem;
+  margin: auto; /* Centers card vertically when height is sufficient */
 }
 
 .setup-title {

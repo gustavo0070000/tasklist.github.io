@@ -481,6 +481,14 @@ function renderHistory() {
   elements.historyList.innerHTML = historyHtml || '<p class="body-sm" style="color: var(--color-outline); text-align: center; margin-top: 2rem;">Nenhuma atividade registrada ainda.</p>';
 }
 
+function saveDataAndRender(data) {
+  renderApp();
+  db.updateDatabase(data).catch(err => {
+    alert("Erro ao salvar no Firebase! Certifique-se de que você configurou as Regras de Segurança no painel do Firebase Console para ler e escrever (veja o passo a passo na tela de configuração). Detalhes do erro: " + err.message);
+    console.error("Firebase write error:", err);
+  });
+}
+
 // Action: Toggle completion state of task
 function toggleTaskCompletion(taskId, isChecked) {
   const data = appState.dbData;
@@ -497,14 +505,7 @@ function toggleTaskCompletion(taskId, isChecked) {
     taskTitle: task.title
   });
   
-  // Optimistic UI Render
-  renderApp();
-  
-  // Push database update
-  db.updateDatabase(data).catch(err => {
-    alert("Erro ao salvar alteração. Tente novamente.");
-    console.error(err);
-  });
+  saveDataAndRender(data);
 }
 
 // Action: Delete a task
@@ -530,8 +531,7 @@ function handleDeleteTask(taskId) {
   // Remove task from array
   data.tasks.splice(taskIndex, 1);
   
-  renderApp();
-  db.updateDatabase(data).catch(console.error);
+  saveDataAndRender(data);
 }
 
 // Action: Delete a list and all its tasks
@@ -560,8 +560,7 @@ function handleDeleteList(listId) {
     appState.activeFilter = 'all';
   }
   
-  renderApp();
-  db.updateDatabase(data).catch(console.error);
+  saveDataAndRender(data);
 }
 
 // Register DOM and UI Event Listeners
@@ -773,8 +772,7 @@ function handleCreateList() {
   appState.activeListId = newList.id;
   appState.activeFilter = 'list';
   
-  renderApp();
-  db.updateDatabase(data).catch(console.error);
+  saveDataAndRender(data);
 }
 
 // Action: Create Task form processing
@@ -829,8 +827,7 @@ function handleCreateTask() {
   elements.selectedDeadlineText.innerText = 'Sem limite';
   elements.selectTaskOwner.value = 'Shared';
   
-  renderApp();
-  db.updateDatabase(data).catch(console.error);
+  saveDataAndRender(data);
 }
 
 // Populate the group select element inside List modal
