@@ -1,4 +1,4 @@
-const CACHE_NAME = 'tasklist-v1';
+const CACHE_NAME = 'tasklist-v2'; // Bumped version to force cache invalidation
 const ASSETS = [
   './',
   './index.html',
@@ -16,9 +16,9 @@ const ASSETS = [
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => {
-      console.log('Caching assets');
+      console.log('Caching assets (Install)');
       return cache.addAll(ASSETS);
-    })
+    }).then(() => self.skipWaiting()) // Force active service worker immediately
   );
 });
 
@@ -29,32 +29,32 @@ self.addEventListener('activate', event => {
       return Promise.all(
         keys.filter(key => key !== CACHE_NAME).map(key => caches.delete(key))
       );
-    })
+    }).then(() => self.clients.claim()) // Claim clients immediately to use the new service worker
   );
 });
 
-// Fetch Event
+// Fetch Event - Network First Strategy
 self.addEventListener('fetch', event => {
-  // Avoid interception of non-HTTP requests or external API calls (e.g. Firebase WebSocket/REST)
+  // Ignore non-HTTP and external API requests (e.g. Firebase websockets)
   if (!event.request.url.startsWith(self.location.origin)) {
     return;
   }
   
   event.respondWith(
-    caches.match(event.request).then(cachedResponse => {
-      if (cachedResponse) {
-        return cachedResponse;
-      }
-      return fetch(event.request).then(response => {
-        // Cache new successful requests for our domain
-        if (response.status === 200) {
+    fetch(event.request)
+      .then(response => {
+        // If we got a valid response, cache it
+        if (response && response.status === 200) {
           const responseClone = response.clone();
           caches.open(CACHE_NAME).then(cache => {
             cache.put(event.request, responseClone);
           });
         }
         return response;
-      });
-    })
+      })
+      .catch(() => {
+        // If network request fails (offline), return cached version
+        return caches.match(event.request);
+      })
   );
 });
