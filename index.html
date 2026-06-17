@@ -39,6 +39,12 @@
         <div class="sidebar-section">
           <ul class="nav-list">
             <li>
+              <a href="#" id="tabDashboard" class="nav-item">
+                <span class="nav-item-icon">📊</span>
+                <span>Resumo</span>
+              </a>
+            </li>
+            <li>
               <a href="#" id="tabTasks" class="nav-item active">
                 <span class="nav-item-icon">📋</span>
                 <span>Tarefas</span>
@@ -107,6 +113,7 @@
       <header class="main-header">
         <div class="header-left">
           <button id="btnToggleMenu" class="btn-menu" aria-label="Abrir Menu">☰</button>
+          <button id="btnHeaderBack" class="btn-back-nav" aria-label="Voltar para o Dashboard" style="display: none;">←</button>
           <div class="list-info">
             <div class="list-title-row">
               <h2 id="activeListTitle">Carregando...</h2>
@@ -132,6 +139,44 @@
       <!-- Content Container -->
       <div id="mainContent" class="main-content" style="display: none;">
         
+        <!-- View 0: Dashboard (Resumo do Dia) -->
+        <div id="viewDashboard" class="tab-view active-view" style="display: flex; flex-direction: column; width: 100%; gap: 1.5rem;">
+          <div class="dashboard-welcome">
+            <h2 id="dashboardUserGreeting" class="headline-lg">Olá!</h2>
+            <p class="body-md" style="color: var(--color-on-surface-variant); margin-top: 2px;">Aqui está o resumo do dia para vocês.</p>
+          </div>
+
+          <!-- Large Progress Card -->
+          <div class="dashboard-progress-card">
+            <div class="progress-info">
+              <h3 class="headline-md" style="margin: 0; color: white;">Progresso do Dia</h3>
+              <p class="body-sm" id="dashboardProgressSub" style="margin: 4px 0 0 0; opacity: 0.9; color: rgba(255, 255, 255, 0.9);">Carregando tarefas...</p>
+            </div>
+            <div class="progress-circle-wrapper">
+              <div class="progress-circle-bg" id="dashboardProgressCircle" style="color: var(--color-primary);">0%</div>
+            </div>
+          </div>
+
+          <!-- Highlight Urgent/Overdue Tasks -->
+          <div class="urgent-highlight-container" id="dashboardUrgentContainer" style="display: none;">
+            <div class="task-section-header">🚨 URGENTES / ATRASADAS</div>
+            <div id="dashboardUrgentList" class="task-list">
+              <!-- Dynamically populated urgent/overdue tasks -->
+            </div>
+          </div>
+
+          <!-- My Lists Grid -->
+          <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+            <div class="task-section-header">
+              <span>Nossas Listas</span>
+              <button id="btnDashboardOpenAddList" class="btn-secondary" style="padding: 4px 10px; font-size: 11px; border-radius: var(--radius-sm); font-weight: bold;">+ Nova Lista</button>
+            </div>
+            <div class="dashboard-lists-grid" id="dashboardListsGrid">
+              <!-- Dynamically populated list cards (e.g. Mercado, Casa) -->
+            </div>
+          </div>
+        </div>
+
         <!-- View 1: Tasks Manager -->
         <div id="viewTasks" class="tab-view active-view" style="display: flex; flex-direction: column; width: 100%; gap: 1.5rem;">
           <!-- Special Quick filter row inside Tasks view -->
@@ -211,6 +256,14 @@
               <!-- Dynamic task cards -->
             </div>
           </section>
+
+          <!-- Sticky Bottom Task Add Bar (Visible on mobile Tasks list view) -->
+          <div id="stickyTaskAddBar" class="sticky-add-bar">
+            <form id="stickyAddTaskForm" class="sticky-add-inner" onsubmit="return false;">
+              <input type="text" id="inputStickyTaskTitle" placeholder="Adicionar novo item..." required autocomplete="off">
+              <button type="submit" id="btnStickyAddTask" class="btn-sticky-add">+</button>
+            </form>
+          </div>
         </div>
 
         <!-- View 2: Calendar View -->
@@ -236,14 +289,27 @@
           </div>
         </div>
 
-        <!-- View 4: Mural (Sticky Notes) -->
+        <!-- View 4: Nós (Mural & Histórico) -->
         <div id="viewNotes" class="tab-view" style="display: none; width: 100%; flex-direction: column; gap: 1.5rem;">
-          <div style="display: flex; align-items: center; justify-content: space-between;">
-            <h3 class="headline-md">Mural de Recados</h3>
-            <button id="btnOpenAddNoteModal" class="btn-primary">+ Deixar Recado</button>
-          </div>
-          <div id="notesGrid" class="notes-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1.5rem; width: 100%;">
-            <!-- Dynamic sticky notes -->
+          <div class="nos-layout-grid">
+            <!-- Left Side: Mural de Recados -->
+            <div style="display: flex; flex-direction: column; gap: 1rem;">
+              <div style="display: flex; align-items: center; justify-content: space-between;">
+                <h3 class="headline-md">Mural de Recados</h3>
+                <button id="btnOpenAddNoteModal" class="btn-primary" style="padding: 6px 12px; font-size: 13px;">+ Deixar Recado</button>
+              </div>
+              <div id="notesGrid" class="notes-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1rem; width: 100%;">
+                <!-- Dynamic sticky notes -->
+              </div>
+            </div>
+            
+            <!-- Right Side: Histórico de Atividades -->
+            <div class="nos-history-section">
+              <h3 class="headline-md" style="font-size: 16px; border-bottom: 1px solid rgba(0,0,0,0.05); padding-bottom: 0.5rem; margin-bottom: 0.5rem;">Histórico de Atividades</h3>
+              <div id="nosHistoryList" style="display: flex; flex-direction: column; gap: 0.5rem; max-height: 400px; overflow-y: auto; padding-right: 4px;">
+                <!-- Dynamic logs mapped here -->
+              </div>
+            </div>
           </div>
         </div>
 
@@ -616,5 +682,7 @@
       });
     }
   </script>
+
+
 </body>
 </html>

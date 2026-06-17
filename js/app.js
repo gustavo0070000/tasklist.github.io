@@ -7,7 +7,7 @@ let appState = {
   dbData: null,
   activeListId: 'all', // 'all', 'today', or specific list ID
   activeFilter: 'all',  // 'all', 'today'
-  activeTab: 'tasks',   // 'tasks', 'calendar', 'projects', 'notes', 'wishlist', 'stats'
+  activeTab: 'dashboard', // default to Dashboard / Resumo do Dia
   currentUser: 'Gus',
   secretKey: '',
   currentMonth: new Date(), // For calendar month view
@@ -35,6 +35,7 @@ const elements = {
   progressBarFill: document.getElementById('progressBarFill'),
   
   // Sidebar Tabs
+  tabDashboard: document.getElementById('tabDashboard'),
   tabTasks: document.getElementById('tabTasks'),
   tabCalendar: document.getElementById('tabCalendar'),
   tabProjects: document.getElementById('tabProjects'),
@@ -152,7 +153,26 @@ const elements = {
   setupSecretKey: document.getElementById('setupSecretKey'),
   setupDbUrl: document.getElementById('setupDbUrl'),
   setupApiKey: document.getElementById('setupApiKey'),
-  setupProjectId: document.getElementById('setupProjectId')
+  setupProjectId: document.getElementById('setupProjectId'),
+
+  // New elements for Dashboard & Us Integration
+  viewDashboard: document.getElementById('viewDashboard'),
+  dashboardUserGreeting: document.getElementById('dashboardUserGreeting'),
+  dashboardProgressSub: document.getElementById('dashboardProgressSub'),
+  dashboardProgressCircle: document.getElementById('dashboardProgressCircle'),
+  dashboardUrgentContainer: document.getElementById('dashboardUrgentContainer'),
+  dashboardUrgentList: document.getElementById('dashboardUrgentList'),
+  dashboardListsGrid: document.getElementById('dashboardListsGrid'),
+  btnDashboardOpenAddList: document.getElementById('btnDashboardOpenAddList'),
+  
+
+  
+  // Sticky add bar & back button:
+  stickyTaskAddBar: document.getElementById('stickyTaskAddBar'),
+  btnHeaderBack: document.getElementById('btnHeaderBack'),
+  
+  // Nós history list:
+  nosHistoryList: document.getElementById('nosHistoryList')
 };
 
 // Run initialization
@@ -226,6 +246,7 @@ function renderApp() {
   renderHistory();
   
   // Hide all tab views
+  if (elements.viewDashboard) elements.viewDashboard.style.display = 'none';
   elements.viewTasks.style.display = 'none';
   elements.viewCalendar.style.display = 'none';
   elements.viewProjects.style.display = 'none';
@@ -233,8 +254,46 @@ function renderApp() {
   elements.viewWishlist.style.display = 'none';
   elements.viewStats.style.display = 'none';
   
+  // Hide sticky bottom task add bar by default
+  if (elements.stickyTaskAddBar) elements.stickyTaskAddBar.classList.remove('active');
+  
+  // Header Back Button & Hamburger Menu logic (Mobile-First Context Header)
+  const isMobile = window.innerWidth <= 800;
+  const inSpecificList = appState.activeTab === 'tasks' && appState.activeFilter === 'list';
+  
+  if (elements.btnHeaderBack) {
+    if (isMobile && inSpecificList) {
+      elements.btnHeaderBack.style.display = 'flex';
+      if (elements.btnToggleMenu) elements.btnToggleMenu.style.display = 'none';
+    } else {
+      elements.btnHeaderBack.style.display = 'none';
+      if (elements.btnToggleMenu) {
+        elements.btnToggleMenu.style.display = isMobile ? 'flex' : 'none';
+      }
+    }
+  }
+
+  // Update sidebar active state (for desktop)
+  document.querySelectorAll('.sidebar-section .nav-item').forEach(btn => btn.classList.remove('active'));
+  const sidebarTabs = {
+    'dashboard': document.getElementById('tabDashboard'),
+    'tasks': document.getElementById('tabTasks'),
+    'calendar': document.getElementById('tabCalendar'),
+    'projects': document.getElementById('tabProjects'),
+    'notes': document.getElementById('tabNotes'),
+    'wishlist': document.getElementById('tabWishlist'),
+    'stats': document.getElementById('tabStats')
+  };
+  const activeSidebarEl = sidebarTabs[appState.activeTab];
+  if (activeSidebarEl && (appState.activeTab !== 'tasks' || appState.activeFilter !== 'list')) {
+    activeSidebarEl.classList.add('active');
+  }
+
   // Render active tab view
-  if (appState.activeTab === 'tasks') {
+  if (appState.activeTab === 'dashboard') {
+    if (elements.viewDashboard) elements.viewDashboard.style.display = 'flex';
+    renderDashboard();
+  } else if (appState.activeTab === 'tasks') {
     elements.viewTasks.style.display = 'flex';
     renderTasks();
   } else if (appState.activeTab === 'calendar') {
@@ -253,6 +312,149 @@ function renderApp() {
     elements.viewStats.style.display = 'flex';
     renderStats();
   }
+}
+
+// Render the Dashboard (Resumo do Dia) view
+function renderDashboard() {
+  const data = appState.dbData;
+  if (!data) return;
+
+  // 1. Greet active user
+  const isGus = appState.currentUser === 'Gus';
+  elements.dashboardUserGreeting.innerText = `Olá, ${isGus ? 'Gus 🧔' : 'Isa 👩'}!`;
+
+  // 2. Calculate daily progress (tasks with deadline today or overall active tasks)
+  const now = new Date();
+  const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+
+  const todayTasks = data.tasks.filter(t => {
+    if (!t.deadline) return false;
+    const d = new Date(t.deadline);
+    return d <= todayEnd;
+  });
+
+  const completedTodayTasks = todayTasks.filter(t => t.completed).length;
+  const totalTodayCount = todayTasks.length;
+  let percent = totalTodayCount > 0 ? Math.round((completedTodayTasks / totalTodayCount) * 100) : 0;
+
+  if (totalTodayCount > 0) {
+    const pendingCount = totalTodayCount - completedTodayTasks;
+    elements.dashboardProgressSub.innerText = pendingCount > 0 
+      ? `${pendingCount} tarefas pendentes para hoje`
+      : 'Todas as tarefas de hoje concluídas! 🎉';
+    elements.dashboardProgressCircle.innerText = `${percent}%`;
+  } else {
+    const generalPending = data.tasks.filter(t => !t.completed).length;
+    elements.dashboardProgressSub.innerText = generalPending > 0
+      ? `${generalPending} tarefas pendentes no total`
+      : 'Nenhuma tarefa pendente! Aproveitem! 🌸';
+    
+    // Overall completion percentage
+    const allTasks = data.tasks;
+    const allCompleted = allTasks.filter(t => t.completed).length;
+    const allPercent = allTasks.length > 0 ? Math.round((allCompleted / allTasks.length) * 100) : 0;
+    elements.dashboardProgressCircle.innerText = `${allPercent}%`;
+  }
+
+  // 3. Highlight Urgent/Overdue Tasks
+  const urgentTasks = data.tasks.filter(t => {
+    if (t.completed) return false;
+    if (!t.deadline) return false;
+    const d = new Date(t.deadline);
+    const diffHours = (d - now) / (1000 * 60 * 60);
+    return d < now || diffHours <= 12; // overdue or within 12h
+  });
+
+  if (urgentTasks.length > 0) {
+    elements.dashboardUrgentContainer.style.display = 'flex';
+    
+    // Sort urgent: oldest deadline first
+    urgentTasks.sort((a, b) => new Date(a.deadline) - new Date(b.deadline));
+    
+    elements.dashboardUrgentList.innerHTML = urgentTasks.slice(0, 3).map(task => {
+      const isOverdue = new Date(task.deadline) < now;
+      const typeClass = isOverdue ? 'overdue' : 'urgent';
+      const formattedTime = new Date(task.deadline).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      const formattedDate = new Date(task.deadline).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
+      
+      let ownerChip = 'Geral';
+      let ownerClass = 'badge-shared';
+      if (task.owner === 'Gus') { ownerChip = 'Gus'; ownerClass = 'badge-gus'; }
+      if (task.owner === 'Isa') { ownerChip = 'Isa'; ownerClass = 'badge-isa'; }
+
+      return `
+        <div class="urgent-highlight-card ${typeClass}" data-task-id="${task.id}">
+          <div style="flex: 1; display: flex; flex-direction: column; gap: 4px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span class="task-meta-chip" style="background-color: var(--color-error-bg); color: var(--color-error); font-size: 10px; font-weight: bold; border-radius: var(--radius-sm);">
+                ${isOverdue ? '⚠️ ATRASADA' : '⏳ URGENTE'}
+              </span>
+              <span style="font-size: 11px; color: var(--color-outline); font-weight: 500;">
+                ${formattedDate}, ${formattedTime}
+              </span>
+            </div>
+            <div style="font-size: 14px; font-weight: 600; color: var(--color-on-surface);">${escapeHTML(task.title)}</div>
+          </div>
+          <span class="task-meta-chip ${ownerClass}" style="align-self: center; font-size: 10px;">${ownerChip}</span>
+        </div>
+      `;
+    }).join('');
+    
+    // Bind click to open specific task in list
+    elements.dashboardUrgentList.querySelectorAll('.urgent-highlight-card').forEach(card => {
+      card.addEventListener('click', () => {
+        const taskId = card.getAttribute('data-task-id');
+        const task = data.tasks.find(t => t.id === taskId);
+        if (task) {
+          appState.activeTab = 'tasks';
+          appState.activeListId = task.listId;
+          appState.activeFilter = 'list';
+          appState.expandedTaskId = taskId;
+          renderApp();
+        }
+      });
+    });
+  } else {
+    elements.dashboardUrgentContainer.style.display = 'none';
+  }
+
+  // 4. Render My Lists Grid
+  elements.dashboardListsGrid.innerHTML = data.lists.map(list => {
+    const listTasks = data.tasks.filter(t => t.listId === list.id && !t.completed);
+    const countText = listTasks.length === 1 ? '1 pendência' : `${listTasks.length} pendências`;
+    
+    let icon = '📁';
+    const nameLower = list.name.toLowerCase();
+    if (nameLower.includes('mercado') || nameLower.includes('compra') || nameLower.includes('supermercado')) icon = '🛒';
+    else if (nameLower.includes('casa') || nameLower.includes('limpeza') || nameLower.includes('organizar')) icon = '🏠';
+    else if (nameLower.includes('trabalho') || nameLower.includes('estud') || nameLower.includes('code')) icon = '💼';
+    else if (nameLower.includes('viagem') || nameLower.includes('ferias') || nameLower.includes('mala')) icon = '✈️';
+    
+    let ownerClass = 'shared';
+    if (list.owner === 'Gus') ownerClass = 'gus';
+    if (list.owner === 'Isa') ownerClass = 'isa';
+    
+    return `
+      <div class="dashboard-list-card" data-list-id="${list.id}">
+        <div class="list-card-icon ${ownerClass}">${icon}</div>
+        <div style="display: flex; flex-direction: column;">
+          <span style="font-size: 15px; font-weight: 700; color: var(--color-on-surface);">${escapeHTML(list.name)}</span>
+          <span style="font-size: 12px; color: var(--color-outline); margin-top: 2px;">${countText}</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // Bind list card click to open list
+  elements.dashboardListsGrid.querySelectorAll('.dashboard-list-card').forEach(card => {
+    card.addEventListener('click', () => {
+      const listId = card.getAttribute('data-list-id');
+      appState.activeTab = 'tasks';
+      appState.activeListId = listId;
+      appState.activeFilter = 'list';
+      renderApp();
+    });
+  });
 }
 
 // Profile UI rendering
@@ -412,6 +614,19 @@ function renderTasks() {
   const data = appState.dbData;
   if (!data) return;
   
+  // Hide top quick add card on mobile in favor of sticky bottom add bar
+  const isMobile = window.innerWidth <= 800;
+  const isSpecificList = appState.activeFilter === 'list';
+  if (isMobile && isSpecificList && elements.stickyTaskAddBar) {
+    elements.stickyTaskAddBar.classList.add('active');
+    const quickAddCard = document.querySelector('.quick-add-card');
+    if (quickAddCard) quickAddCard.style.display = 'none';
+  } else {
+    if (elements.stickyTaskAddBar) elements.stickyTaskAddBar.classList.remove('active');
+    const quickAddCard = document.querySelector('.quick-add-card');
+    if (quickAddCard) quickAddCard.style.display = 'block';
+  }
+  
   let listTitle = "Todas as Tarefas";
   let listOwner = "Shared";
   let filteredTasks = [...data.tasks];
@@ -499,7 +714,7 @@ function renderTasks() {
   elements.btnFilterMyTasks.style.borderColor = appState.quickFilter === 'mine' ? 'var(--color-primary)' : 'var(--color-outline-variant)';
   elements.btnFilterUrgentTasks.style.backgroundColor = appState.quickFilter === 'urgent' ? 'var(--color-primary-fixed)' : 'transparent';
   elements.btnFilterUrgentTasks.style.borderColor = appState.quickFilter === 'urgent' ? 'var(--color-primary)' : 'var(--color-outline-variant)';
-  elements.btnClearQuickFilters.style.display = appState.quickFilter !== 'none' ? 'inline-block' : 'none';
+  elements.btnClearQuickFilters.style.display = (appState.quickFilter !== 'none' || appState.activeFilter === 'date') ? 'inline-block' : 'none';
   
   // Toggle empty states
   if (totalCount === 0) {
@@ -542,22 +757,28 @@ function renderTaskCard(task) {
   else priorityBadge = '<span class="task-meta-chip" style="background-color: var(--color-warning-bg); color: var(--color-warning-text); font-weight: bold;">🟡 Média</span>';
   
   const isExpanded = task.id === appState.expandedTaskId;
-  let expandedHtml = '';
   
-  if (isExpanded) {
-    // 1. Subtasks Checklist
-    const subtasks = task.subtasks || [];
-    const subtasksHtml = subtasks.map(st => `
+  const subtasks = task.subtasks || [];
+  const comments = task.comments || [];
+
+  // 1. Subtasks Checklist
+  let subtasksListHtml = '';
+  if (subtasks.length > 0) {
+    subtasksListHtml = subtasks.map(st => `
       <div class="subtask-item ${st.completed ? 'completed' : ''}" style="display: flex; align-items: center; gap: 0.5rem; font-size: 13px; padding: 2px 0;">
         <input type="checkbox" class="subtask-checkbox" data-subtask-id="${st.id}" ${st.completed ? 'checked' : ''} style="cursor: pointer;">
         <span class="subtask-title" style="flex: 1; ${st.completed ? 'text-decoration: line-through; opacity: 0.6;' : ''}">${escapeHTML(st.title)}</span>
-        <button class="btn-delete-subtask" data-subtask-id="${st.id}" style="border: none; background: none; font-size: 12px; cursor: pointer; color: var(--color-outline); padding: 0 4px;">✕</button>
+        ${isExpanded ? `<button class="btn-delete-subtask" data-subtask-id="${st.id}" style="border: none; background: none; font-size: 12px; cursor: pointer; color: var(--color-outline); padding: 0 4px;">✕</button>` : ''}
       </div>
     `).join('');
-    
-    // 2. Comments
-    const comments = task.comments || [];
-    const commentsHtml = comments.map(c => {
+  } else if (isExpanded) {
+    subtasksListHtml = '<p style="font-size: 11px; color: var(--color-outline); font-style: italic; margin: 0;">Nenhuma sub-tarefa criada.</p>';
+  }
+
+  // 2. Comments List
+  let commentsListHtml = '';
+  if (comments.length > 0) {
+    commentsListHtml = comments.map(c => {
       const time = new Date(c.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
       return `
         <div class="comment-item" style="font-size: 12px; line-height: 1.4; background: white; padding: 6px 8px; border-radius: var(--radius-sm); border: var(--border-standard); margin-bottom: 4px;">
@@ -567,8 +788,13 @@ function renderTaskCard(task) {
         </div>
       `;
     }).join('');
-    
-    // 3. Priority selector dropdown
+  } else if (isExpanded) {
+    commentsListHtml = '<p style="font-size: 11px; color: var(--color-outline); font-style: italic; margin: 0; padding: 4px 0;">Sem recados.</p>';
+  }
+
+  // 3. Settings Block (Priority, Recurrence, Owner, Deadline) - only when expanded
+  let settingsHtml = '';
+  if (isExpanded) {
     const prioritySelect = `
       <div style="display: flex; align-items: center; gap: 6px;">
         <span style="font-size: 11px; font-weight: 700; color: var(--color-outline);">Prioridade:</span>
@@ -580,7 +806,6 @@ function renderTaskCard(task) {
       </div>
     `;
     
-    // 4. Recurrence selector dropdown
     const recurrenceSelect = `
       <div style="display: flex; align-items: center; gap: 6px;">
         <span style="font-size: 11px; font-weight: 700; color: var(--color-outline);">Repetir:</span>
@@ -592,38 +817,92 @@ function renderTaskCard(task) {
         </select>
       </div>
     `;
-    
-    expandedHtml = `
-      <div class="task-card-expanded-content" style="display: flex; flex-direction: column; gap: 1rem; width: 100%; border-top: 1px solid #f1f5f9; padding-top: 1rem; margin-top: 0.75rem;">
-        <!-- Priority & Recurrence Row -->
-        <div style="display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: center;">
-          ${prioritySelect}
-          ${recurrenceSelect}
+
+    const ownerSelect = `
+      <div style="display: flex; align-items: center; gap: 6px;">
+        <span style="font-size: 11px; font-weight: 700; color: var(--color-outline);">Responsável:</span>
+        <select class="select-task-card-owner" style="font-size: 12px; padding: 2px 6px; border: var(--border-standard); border-radius: var(--radius-sm); background: white;">
+          <option value="Shared" ${task.owner === 'Shared' || !task.owner ? 'selected' : ''}>👪 Compartilhado</option>
+          <option value="Gus" ${task.owner === 'Gus' ? 'selected' : ''}>Gus</option>
+          <option value="Isa" ${task.owner === 'Isa' ? 'selected' : ''}>Isa</option>
+        </select>
+      </div>
+    `;
+
+    let deadlineValue = '';
+    if (task.deadline) {
+      const date = new Date(task.deadline);
+      const tzOffset = date.getTimezoneOffset() * 60000;
+      const localISODate = new Date(date.getTime() - tzOffset).toISOString();
+      deadlineValue = localISODate.slice(0, 16);
+    }
+    const deadlineInput = `
+      <div style="display: flex; align-items: center; gap: 6px;">
+        <span style="font-size: 11px; font-weight: 700; color: var(--color-outline);">Prazo:</span>
+        <input type="datetime-local" class="input-task-card-deadline" value="${deadlineValue}" style="font-size: 12px; padding: 2px 6px; border: var(--border-standard); border-radius: var(--radius-sm); background: white;">
+      </div>
+    `;
+
+    settingsHtml = `
+      <div style="display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; border-bottom: 1px solid #f1f5f9; padding-bottom: 0.75rem; width: 100%;">
+        ${prioritySelect}
+        ${recurrenceSelect}
+        ${ownerSelect}
+        ${deadlineInput}
+      </div>
+    `;
+  }
+
+  // 4. Checklist Block Layout
+  let checklistBlockHtml = '';
+  if (subtasks.length > 0 || isExpanded) {
+    const inputAddHtml = isExpanded ? `
+      <div style="display: flex; gap: 6px; margin-top: 4px;">
+        <input type="text" class="input-subtask-add" placeholder="Adicionar item ao checklist..." style="flex: 1; font-size: 12px; border: none; border-bottom: 1px dashed var(--color-outline-variant); outline: none; background: transparent; padding: 4px 0;">
+        <button class="btn-subtask-add-submit" style="padding: 2px 8px; font-size: 12px; background-color: var(--color-primary); color: white; border: none; border-radius: var(--radius-sm); cursor: pointer;">+</button>
+      </div>
+    ` : '';
+
+    checklistBlockHtml = `
+      <div class="subtasks-section" style="display: flex; flex-direction: column; gap: 0.5rem; width: 100%;">
+        <label style="font-size: 11px; font-weight: 700; color: var(--color-outline);">Checklist de Itens</label>
+        <div class="subtask-list" style="display: flex; flex-direction: column; gap: 4px;">
+          ${subtasksListHtml}
         </div>
-        
-        <!-- Subtasks Section -->
-        <div class="subtasks-section" style="display: flex; flex-direction: column; gap: 0.5rem;">
-          <label style="font-size: 12px; font-weight: 700; color: var(--color-outline);">Checklist de Itens</label>
-          <div class="subtask-list" style="display: flex; flex-direction: column; gap: 4px;">
-            ${subtasksHtml || '<p style="font-size: 11px; color: var(--color-outline); font-style: italic; margin: 0;">Nenhuma sub-tarefa criada.</p>'}
-          </div>
-          <div style="display: flex; gap: 6px; margin-top: 4px;">
-            <input type="text" class="input-subtask-add" placeholder="Adicionar item ao checklist..." style="flex: 1; font-size: 12px; border: none; border-bottom: 1px dashed var(--color-outline-variant); outline: none; background: transparent; padding: 4px 0;">
-            <button class="btn-subtask-add-submit" style="padding: 2px 8px; font-size: 12px; background-color: var(--color-primary); color: white; border: none; border-radius: var(--radius-sm); cursor: pointer;">+</button>
-          </div>
+        ${inputAddHtml}
+      </div>
+    `;
+  }
+
+  // 5. Comments Block Layout
+  let commentsBlockHtml = '';
+  if (comments.length > 0 || isExpanded) {
+    const inputCommentHtml = isExpanded ? `
+      <div class="comment-form" style="display: flex; gap: 4px; margin-top: 4px; width: 100%;">
+        <input type="text" class="input-comment" placeholder="Escrever comentário..." style="flex: 1; font-size: 12px; border: var(--border-standard); border-radius: var(--radius-sm); padding: 4px 8px; outline: none;">
+        <button class="btn-comment-send" style="padding: 4px 10px; font-size: 12px; background-color: var(--color-primary); color: white; border: none; border-radius: var(--radius-sm); cursor: pointer;">Enviar</button>
+      </div>
+    ` : '';
+
+    commentsBlockHtml = `
+      <div class="comments-section" style="display: flex; flex-direction: column; gap: 0.5rem; background-color: var(--color-surface-container-low); padding: 0.75rem; border-radius: var(--radius-default); border: var(--border-standard); width: 100%;">
+        <label style="font-size: 11px; font-weight: 700; color: var(--color-outline);">Chat / Comentários</label>
+        <div class="comment-list" style="max-height: 120px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px;">
+          ${commentsListHtml}
         </div>
-        
-        <!-- Comments Section -->
-        <div class="comments-section" style="display: flex; flex-direction: column; gap: 0.5rem; background-color: var(--color-surface-container-low); padding: 0.75rem; border-radius: var(--radius-default);">
-          <label style="font-size: 12px; font-weight: 700; color: var(--color-outline);">Chat / Comentários</label>
-          <div class="comment-list" style="max-height: 120px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px;">
-            ${commentsHtml || '<p style="font-size: 11px; color: var(--color-outline); font-style: italic; margin: 0; padding: 4px 0;">Sem recados.</p>'}
-          </div>
-          <div class="comment-form" style="display: flex; gap: 4px; margin-top: 4px;">
-            <input type="text" class="input-comment" placeholder="Escrever comentário..." style="flex: 1; font-size: 12px; border: var(--border-standard); border-radius: var(--radius-sm); padding: 4px 8px; outline: none;">
-            <button class="btn-comment-send" style="padding: 4px 10px; font-size: 12px; background-color: var(--color-primary); color: white; border: none; border-radius: var(--radius-sm); cursor: pointer;">Enviar</button>
-          </div>
-        </div>
+        ${inputCommentHtml}
+      </div>
+    `;
+  }
+
+  // Combine elements inside the card-expanded-content wrapper if there is any content to render
+  let extraContentHtml = '';
+  if (settingsHtml || checklistBlockHtml || commentsBlockHtml) {
+    extraContentHtml = `
+      <div class="task-card-expanded-content" style="display: flex; flex-direction: column; gap: 0.75rem; width: 100%; border-top: 1px solid #f1f5f9; padding-top: 0.75rem; margin-top: 0.5rem;">
+        ${settingsHtml}
+        ${checklistBlockHtml}
+        ${commentsBlockHtml}
       </div>
     `;
   }
@@ -649,7 +928,7 @@ function renderTaskCard(task) {
         <button class="task-action-btn btn-delete-task" title="Excluir Tarefa" style="margin-top: 4px;">🗑️</button>
       </div>
       
-      ${expandedHtml}
+      ${extraContentHtml}
     </div>
   `;
 }
@@ -793,6 +1072,27 @@ function addTaskListeners() {
       handleTaskRecurrenceChange(taskId, sel.value);
     });
   });
+
+  // Owner dropdown change
+  document.querySelectorAll('.select-task-card-owner').forEach(sel => {
+    sel.addEventListener('click', (e) => e.stopPropagation());
+    sel.addEventListener('change', (e) => {
+      const card = sel.closest('.task-card');
+      const taskId = card.getAttribute('data-task-id');
+      handleTaskOwnerChange(taskId, sel.value);
+    });
+  });
+
+  // Deadline date-time picker change
+  document.querySelectorAll('.input-task-card-deadline').forEach(inp => {
+    inp.addEventListener('click', (e) => e.stopPropagation());
+    inp.addEventListener('change', (e) => {
+      const card = inp.closest('.task-card');
+      const taskId = card.getAttribute('data-task-id');
+      const isoDeadline = inp.value ? new Date(inp.value).toISOString() : null;
+      handleTaskDeadlineChange(taskId, isoDeadline);
+    });
+  });
 }
 
 // Render History Log items in drawer
@@ -898,6 +1198,30 @@ function renderHistory() {
   
   elements.historyList.innerHTML = historyHtml || '<p class="body-sm" style="color: var(--color-outline); text-align: center; margin-top: 2rem;">Nenhuma atividade registrada ainda.</p>';
   
+  // Render history directly in the Nós (Us) view tab
+  if (elements.nosHistoryList) {
+    elements.nosHistoryList.innerHTML = historyHtml || '<p class="body-sm" style="color: var(--color-outline); text-align: center; margin-top: 1rem;">Nenhuma atividade registrada ainda.</p>';
+    
+    // Bind reactions in Nosotros History
+    elements.nosHistoryList.querySelectorAll('.btn-history-reaction').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const logId = btn.getAttribute('data-log-id');
+        const emoji = btn.getAttribute('data-emoji');
+        handleHistoryReaction(logId, emoji);
+      });
+    });
+    
+    // Bind undo in Nosotros History
+    elements.nosHistoryList.querySelectorAll('.btn-history-undo').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const logId = btn.getAttribute('data-log-id');
+        handleHistoryUndo(logId);
+      });
+    });
+  }
+
   // Bind reactions
   elements.historyList.querySelectorAll('.btn-history-reaction').forEach(btn => {
     btn.addEventListener('click', (e) => {
@@ -1152,14 +1476,87 @@ function setupEventListeners() {
       .catch(err => alert("Erro no disparo de teste: " + err));
   });
   
+  // Back button in header (returns to Dashboard)
+  if (elements.btnHeaderBack) {
+    elements.btnHeaderBack.addEventListener('click', (e) => {
+      e.preventDefault();
+      appState.activeTab = 'dashboard';
+      renderApp();
+    });
+  }
+
+  // Dashboard "+" add list button listener
+  if (elements.btnDashboardOpenAddList) {
+    elements.btnDashboardOpenAddList.addEventListener('click', (e) => {
+      e.preventDefault();
+      elements.addListModal.classList.add('open');
+      populateGroupSelect();
+      elements.inputListName.value = '';
+      elements.inputNewGroupName.value = '';
+      elements.inputListName.focus();
+    });
+  }
+
+  // Sticky task add form submission (adds to current active list)
+  const stickyForm = document.getElementById('stickyAddTaskForm');
+  if (stickyForm) {
+    stickyForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const input = document.getElementById('inputStickyTaskTitle');
+      const title = input.value.trim();
+      if (!title) return;
+      
+      const data = appState.dbData;
+      let targetListId = appState.activeListId;
+      if (appState.activeListId === 'all' || appState.activeListId === 'today') {
+        if (data.lists.length > 0) {
+          targetListId = data.lists[0].id;
+        } else {
+          alert("Crie uma lista no menu lateral antes de adicionar tarefas.");
+          return;
+        }
+      }
+      
+      const newTask = {
+        id: 't-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
+        listId: targetListId,
+        title: title,
+        completed: false,
+        completedBy: null,
+        completedAt: null,
+        createdBy: appState.currentUser,
+        createdAt: new Date().toISOString(),
+        deadline: null,
+        owner: 'Shared'
+      };
+      
+      data.tasks.push(newTask);
+      
+      const activeList = data.lists.find(l => l.id === targetListId);
+      db.logAction(data, 'add_task', {
+        taskId: newTask.id,
+        taskTitle: newTask.title,
+        listName: activeList ? activeList.name : 'Lista'
+      });
+      
+      input.value = '';
+      saveDataAndRender(data);
+    });
+  }
+
   // Tabs Switch Controller
-  const tabs = ['Tasks', 'Calendar', 'Projects', 'Notes', 'Wishlist', 'Stats'];
+  const tabs = ['Dashboard', 'Tasks', 'Calendar', 'Projects', 'Notes', 'Wishlist', 'Stats'];
   tabs.forEach(tabName => {
     const el = elements[`tab${tabName}`];
     if (el) {
       el.addEventListener('click', (e) => {
         e.preventDefault();
         appState.activeTab = tabName.toLowerCase();
+        
+        if (tabName === 'Tasks') {
+          appState.activeFilter = 'all';
+          appState.activeListId = 'all';
+        }
         
         // Remove active class from other elements
         document.querySelectorAll('.sidebar-section .nav-item').forEach(btn => btn.classList.remove('active'));
@@ -1184,6 +1581,10 @@ function setupEventListeners() {
   
   elements.btnClearQuickFilters.addEventListener('click', () => {
     appState.quickFilter = 'none';
+    if (appState.activeFilter === 'date') {
+      appState.activeFilter = 'all';
+      appState.activeListId = 'all';
+    }
     renderTasks();
   });
   
@@ -2120,6 +2521,24 @@ function handleTaskRecurrenceChange(taskId, recurrence) {
   if (!task) return;
   
   task.recurrence = recurrence;
+  saveDataAndRender(data);
+}
+
+function handleTaskOwnerChange(taskId, owner) {
+  const data = appState.dbData;
+  const task = data.tasks.find(t => t.id === taskId);
+  if (!task) return;
+  
+  task.owner = owner;
+  saveDataAndRender(data);
+}
+
+function handleTaskDeadlineChange(taskId, deadline) {
+  const data = appState.dbData;
+  const task = data.tasks.find(t => t.id === taskId);
+  if (!task) return;
+  
+  task.deadline = deadline;
   saveDataAndRender(data);
 }
 
