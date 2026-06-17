@@ -42,6 +42,8 @@ const elements = {
   listsContainer: document.getElementById('listsContainer'),
   badgeCountAll: document.getElementById('badgeCountAll'),
   badgeCountToday: document.getElementById('badgeCountToday'),
+  filterAll: document.getElementById('filterAll'),
+  filterToday: document.getElementById('filterToday'),
   
   // Modals
   addListModal: document.getElementById('addListModal'),
