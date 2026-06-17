@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>tasklist</title>
+  
+  <!-- SEO Meta Tags -->
+  <meta name="description" content="Lista de tarefas compartilhada em tempo real para Gus & Isa gerenciarem sua rotina com harmonia e simplicidade.">
+  <meta name="theme-color" content="#4648d4">
+  
+  <!-- PWA & Favicon -->
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/png" href="assets/favicon.png">
+  <link rel="apple-touch-icon" href="assets/icon-192.png">
+  
+  <!-- CSS Stylesheets -->
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- App Wrapper -->
+  <div class="app-container">
+    
+    <!-- Sidebar Overlay for mobile -->
+    <div id="sidebarOverlay" class="sidebar-overlay"></div>
+    
+    <!-- Sidebar -->
+    <aside id="sidebar" class="sidebar">
+      <div class="sidebar-header">
+        <div class="logo-area">
+          <div class="logo-icon">✓</div>
+          <span class="logo-text">tasklist</span>
+        </div>
+      </div>
+      
+      <div class="sidebar-scroll">
+        <!-- Smart Filters -->
+        <div class="sidebar-section">
+          <ul class="nav-list">
+            <li>
+              <a href="#" id="filterAll" class="nav-item active">
+                <span class="nav-item-icon">📋</span>
+                <span>Todas as tarefas</span>
+                <span id="badgeCountAll" class="nav-item-badge">0</span>
+              </a>
+            </li>
+            <li>
+              <a href="#" id="filterToday" class="nav-item">
+                <span class="nav-item-icon">⏰</span>
+                <span>Com tempo limite</span>
+                <span id="badgeCountToday" class="nav-item-badge">0</span>
+              </a>
+            </li>
+          </ul>
+        </div>
+        
+        <!-- Groups and Lists -->
+        <div class="sidebar-section">
+          <div class="sidebar-section-title">
+            <span class="label-md">Nossas Listas</span>
+            <button id="btnOpenAddListModal" class="btn-add-section" title="Nova Lista">+</button>
+          </div>
+          
+          <div id="listsContainer">
+            <!-- Dynamic Groups and Lists go here -->
+          </div>
+        </div>
+      </div>
+      
+      <!-- User profile in sidebar footer -->
+      <div class="sidebar-footer">
+        <div id="currentUserBadge" class="user-badge">
+          <!-- Loaded dynamically -->
+        </div>
+        <button id="btnOpenSettings" class="btn-settings" title="Configurações">⚙️</button>
+      </div>
+    </aside>
+    
+    <!-- Main Content Area -->
+    <main class="main-wrapper">
+      
+      <!-- Header -->
+      <header class="main-header">
+        <div class="header-left">
+          <button id="btnToggleMenu" class="btn-menu" aria-label="Abrir Menu">☰</button>
+          <div class="list-info">
+            <div class="list-title-row">
+              <h2 id="activeListTitle">Carregando...</h2>
+              <span id="activeListOwnerBadge" class="list-owner-badge"></span>
+            </div>
+          </div>
+        </div>
+        
+        <div class="header-right">
+          <!-- Progress -->
+          <div class="progress-container">
+            <span id="progressText" class="label-sm" style="color: var(--color-on-surface-variant); text-align: right;">0%</span>
+            <div class="progress-track">
+              <div id="progressBarFill" class="progress-fill"></div>
+            </div>
+          </div>
+          
+          <!-- Activity log button -->
+          <button id="btnToggleHistory" class="btn-settings" title="Histórico de Atividades" style="margin-left: 0.5rem;">📜</button>
+        </div>
+      </header>
+      
+      <!-- Content Container -->
+      <div id="mainContent" class="main-content" style="display: none;">
+        
+        <!-- Add Task Card -->
+        <section class="quick-add-card">
+          <form id="addTaskForm" class="quick-add-form" onsubmit="return false;">
+            <div class="quick-add-input-row">
+              <span style="font-size: 1.25rem;">➕</span>
+              <input type="text" id="inputTaskTitle" class="input-task-title" placeholder="Adicionar nova tarefa..." required autocomplete="off">
+            </div>
+            
+            <div class="quick-add-controls">
+              <div class="controls-left">
+                <!-- Deadline picker -->
+                <div class="date-picker-wrapper">
+                  <span>⏰ Limite: </span>
+                  <span id="selectedDeadlineText" style="font-weight: 600; margin-left: 4px;">Sem limite</span>
+                  <input type="datetime-local" id="inputTaskDeadline">
+                </div>
+                
+                <!-- Responsibility select -->
+                <div class="owner-select-wrapper">
+                  <span>Para: </span>
+                  <select id="selectTaskOwner">
+                    <option value="Shared">👪 Compartilhado</option>
+                    <option value="Gus">Gus</option>
+                    <option value="Isa">Isa</option>
+                  </select>
+                </div>
+              </div>
+              
+              <button type="submit" id="btnAddTask" class="btn-add-task">Adicionar</button>
+            </div>
+          </form>
+        </section>
+        
+        <!-- Empty State View -->
+        <div id="emptyStateView" class="empty-state" style="display: none;">
+          <div class="empty-state-icon">🌸</div>
+          <h3 class="empty-state-title">Tudo limpo por aqui!</h3>
+          <p class="empty-state-desc">Aproveitem o momento de paz ou adicionem novas tarefas acima.</p>
+        </div>
+        
+        <!-- To-Do Section -->
+        <section id="todoSection">
+          <div class="task-section-header">
+            <span>Para Fazer</span>
+            <span id="todoCount">0</span>
+          </div>
+          <div id="todoTaskList" class="task-list">
+            <!-- Dynamic task cards -->
+          </div>
+        </section>
+        
+        <!-- Completed Section -->
+        <section id="completedSection">
+          <div class="task-section-header">
+            <span>Concluídas</span>
+            <span id="completedCount">0</span>
+          </div>
+          <div id="completedTaskList" class="task-list">
+            <!-- Dynamic task cards -->
+          </div>
+        </section>
+        
+      </div>
+    </main>
+  </div>
+  
+  <!-- Activity Drawer -->
+  <div id="drawerOverlay" class="drawer-overlay"></div>
+  <aside id="activityDrawer" class="drawer">
+    <div class="drawer-header">
+      <h3 class="headline-md">Histórico</h3>
+      <button id="btnCloseHistory" class="btn-settings">✕</button>
+    </div>
+    <div class="drawer-content">
+      <div id="historyList" class="history-list">
+        <!-- Dynamic logs -->
+      </div>
+    </div>
+  </aside>
+  
+  <!-- Setup Required Page Overlay -->
+  <div id="setupOverlay" class="setup-overlay">
+    <div class="setup-card">
+      <h2 class="setup-title">Bem-vindo ao tasklist!</h2>
+      <p class="body-md" style="text-align: center; color: var(--color-on-surface-variant);">
+        Para sincronizar suas tarefas entre o Gus e a Isa, precisamos conectar ao seu banco de dados Firebase gratuito.
+      </p>
+      
+      <div class="setup-help">
+        <strong>Aviso de Regras do Firebase:</strong><br>
+        Edite as regras de segurança no console do Firebase Realtime Database para permitir o acesso usando a chave secreta:
+        <pre style="margin-top: 8px; font-size: 11px; background: #fff; padding: 6px; border-radius: 4px; overflow-x: auto;">
+{
+  "rules": {
+    "tasks": {
+      "$secret_key": {
+        ".read": "true",
+        ".write": "true"
+      }
+    }
+  }
+}</pre>
+      </div>
+      
+      <form id="setupForm" class="quick-add-form" onsubmit="return false;">
+        <div class="form-group">
+          <label class="form-label" for="setupUser">Quem é você?</label>
+          <div class="radio-group">
+            <label class="radio-card owner-gus">
+              <input type="radio" name="setup_user" value="Gus" checked>
+              <span>Gus 🧔</span>
+            </label>
+            <label class="radio-card owner-isa">
+              <input type="radio" name="setup_user" value="Isa">
+              <span>Isa 👩</span>
+            </label>
+          </div>
+        </div>
+        
+        <div class="form-group">
+          <label class="form-label" for="setupSecretKey">Chave Secreta Compartilhada</label>
+          <input type="text" id="setupSecretKey" class="form-control" placeholder="Ex: gus-isa-familia" required autocomplete="off">
+        </div>
+        
+        <div class="form-group">
+          <label class="form-label" for="setupDbUrl">Firebase Database URL</label>
+          <input type="url" id="setupDbUrl" class="form-control" placeholder="https://seu-projeto.firebaseio.com/" required autocomplete="off">
+        </div>
+        
+        <div class="form-group">
+          <label class="form-label" for="setupApiKey">Firebase API Key</label>
+          <input type="text" id="setupApiKey" class="form-control" placeholder="AIzaSy..." required autocomplete="off">
+        </div>
+        
+        <div class="form-group">
+          <label class="form-label" for="setupProjectId">Firebase Project ID</label>
+          <input type="text" id="setupProjectId" class="form-control" placeholder="seu-projeto-123" required autocomplete="off">
+        </div>
+        
+        <button type="submit" id="btnSaveSetup" class="btn-primary" style="margin-top: 0.5rem; width: 100%;">Salvar Configurações</button>
+      </form>
+    </div>
+  </div>
+  
+  <!-- Add List / Group Modal -->
+  <div id="addListModal" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="headline-md">Nova Lista</h3>
+        <button id="btnCloseAddListModal" class="btn-settings">✕</button>
+      </div>
+      <div class="modal-content">
+        <form id="addListForm" onsubmit="return false;" class="quick-add-form">
+          <div class="form-group">
+            <label class="form-label" for="inputListName">Nome da Lista</label>
+            <input type="text" id="inputListName" class="form-control" placeholder="Ex: Mercado" required autocomplete="off">
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Grupo (Agrupador)</label>
+            <select id="selectListGroup" class="form-control">
+              <!-- Dynamically populated, plus a 'Novo Grupo' option -->
+            </select>
+          </div>
+          
+          <!-- Custom Input for New Group name, shown only when "Novo Grupo" is selected -->
+          <div class="form-group" id="newGroupNameGroup" style="display: none;">
+            <label class="form-label" for="inputNewGroupName">Nome do Novo Grupo</label>
+            <input type="text" id="inputNewGroupName" class="form-control" placeholder="Ex: Viagens" autocomplete="off">
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Proprietário da Lista</label>
+            <div class="radio-group">
+              <label class="radio-card owner-gus">
+                <input type="radio" name="list_owner" value="Gus">
+                <span>Gus</span>
+              </label>
+              <label class="radio-card owner-isa">
+                <input type="radio" name="list_owner" value="Isa">
+                <span>Isa</span>
+              </label>
+              <label class="radio-card" style="border-color: var(--color-primary);">
+                <input type="radio" name="list_owner" value="Shared" checked>
+                <span>👪 Geral</span>
+              </label>
+            </div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button id="btnCancelAddList" class="btn-secondary">Cancelar</button>
+        <button id="btnSaveList" class="btn-primary">Criar Lista</button>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Settings Modal (Advanced config adjustments) -->
+  <div id="settingsModal" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="headline-md">Configurações</h3>
+        <button id="btnCloseSettingsModal" class="btn-settings">✕</button>
+      </div>
+      <div class="modal-content">
+        <div class="form-group">
+          <label class="form-label">Notificações</label>
+          <button id="btnEnableNotifications" class="btn-secondary" style="width: 100%; text-align: center; display: flex; align-items: center; justify-content: center; gap: 8px;">
+            <span>🔔 Ativar Notificações no Celular</span>
+          </button>
+        </div>
+        <hr style="border: none; border-top: var(--border-standard);">
+        <div class="form-group">
+          <label class="form-label">Mudar Perfil</label>
+          <div class="radio-group">
+            <button id="btnSwitchToGus" class="btn-secondary" style="flex: 1; border-color: var(--color-gus); background-color: var(--color-gus-bg); color: var(--color-gus-on); font-weight: bold;">Gus 🧔</button>
+            <button id="btnSwitchToIsa" class="btn-secondary" style="flex: 1; border-color: var(--color-isa); background-color: var(--color-isa-bg); color: var(--color-isa-on); font-weight: bold;">Isa 👩</button>
+          </div>
+        </div>
+        <hr style="border: none; border-top: var(--border-standard);">
+        <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+          <span class="label-sm" style="color: var(--color-outline);">Configurado para o banco Firebase:</span>
+          <code id="settingsConnectedDb" style="font-size: 11px; background-color: var(--color-surface-container-low); padding: 4px; border-radius: var(--radius-sm); word-break: break-all;">-</code>
+        </div>
+      </div>
+      <div class="modal-footer" style="justify-content: space-between;">
+        <button id="btnResetApp" class="btn-secondary" style="color: var(--color-error); border-color: var(--color-error);">Desconectar Banco</button>
+        <button id="btnConfirmCloseSettings" class="btn-primary">Fechar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Firebase Scripts Compat -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+  
+  <!-- App Modules -->
+  <script type="module" src="js/app.js"></script>
+
+  <!-- PWA Registration -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+          .then(reg => console.log('Service Worker registrado com sucesso:', reg.scope))
+          .catch(err => console.log('Falha ao registrar Service Worker:', err));
+      });
+    }
+  </script>
+</body>
+</html>
