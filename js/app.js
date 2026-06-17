@@ -81,11 +81,9 @@ const elements = {
   setupProjectId: document.getElementById('setupProjectId')
 };
 
-// Initial Setup Check
-document.addEventListener('DOMContentLoaded', () => {
-  setupEventListeners();
-  checkConfiguration();
-});
+// Run initialization
+setupEventListeners();
+checkConfiguration();
 
 // Check if app has database config
 function checkConfiguration() {
