@@ -71,7 +71,6 @@ const elements = {
   addTaskForm: document.getElementById('addTaskForm'),
   inputTaskTitle: document.getElementById('inputTaskTitle'),
   inputTaskDeadline: document.getElementById('inputTaskDeadline'),
-  selectedDeadlineText: document.getElementById('selectedDeadlineText'),
   selectTaskOwner: document.getElementById('selectTaskOwner'),
   currentUserBadge: document.getElementById('currentUserBadge'),
   
@@ -649,19 +648,6 @@ function setupEventListeners() {
     handleCreateTask();
   });
   
-  // Handle displaying deadline text in form
-  elements.inputTaskDeadline.addEventListener('change', () => {
-    const val = elements.inputTaskDeadline.value;
-    if (val) {
-      const d = new Date(val);
-      elements.selectedDeadlineText.innerText = d.toLocaleDateString('pt-BR', {
-        day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
-      });
-    } else {
-      elements.selectedDeadlineText.innerText = "Sem limite";
-    }
-  });
-  
   // History Drawer Show/Hide
   elements.btnToggleHistory.addEventListener('click', () => {
     elements.activityDrawer.classList.add('open');
@@ -809,7 +795,8 @@ function handleCreateTask() {
     completedAt: null,
     createdBy: appState.currentUser,
     createdAt: new Date().toISOString(),
-    deadline: deadline
+    deadline: deadline,
+    owner: owner
   };
   
   data.tasks.push(newTask);
@@ -825,7 +812,6 @@ function handleCreateTask() {
   // Clear inputs
   elements.inputTaskTitle.value = '';
   elements.inputTaskDeadline.value = '';
-  elements.selectedDeadlineText.innerText = 'Sem limite';
   elements.selectTaskOwner.value = 'Shared';
   
   saveDataAndRender(data);
