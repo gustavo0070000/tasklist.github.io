@@ -172,10 +172,84 @@ const elements = {
   btnHeaderBack: document.getElementById('btnHeaderBack'),
   
   // Nós history list:
-  nosHistoryList: document.getElementById('nosHistoryList')
+  nosHistoryList: document.getElementById('nosHistoryList'),
+
+  // Mobile Bottom Navigation
+  mobileBottomNav: document.getElementById('mobileBottomNav'),
+  bottomNavBadgeTasks: document.getElementById('bottomNavBadgeTasks'),
+  bottomNavBtnMore: document.getElementById('bottomNavBtnMore'),
+  
+  // Theme Toggle Elements
+  btnToggleTheme: document.getElementById('btnToggleTheme'),
+  btnSetThemeLight: document.getElementById('btnSetThemeLight'),
+  btnSetThemeDark: document.getElementById('btnSetThemeDark'),
+  btnSetThemeAuto: document.getElementById('btnSetThemeAuto'),
+  
+  // Couple Progress Ring & Mural Preview
+  svgRingGus: document.getElementById('svgRingGus'),
+  svgRingIsa: document.getElementById('svgRingIsa'),
+  legendGusDone: document.getElementById('legendGusDone'),
+  legendIsaDone: document.getElementById('legendIsaDone'),
+  dashboardMuralPreviewContainer: document.getElementById('dashboardMuralPreviewContainer'),
+  dashboardMuralAuthor: document.getElementById('dashboardMuralAuthor'),
+  dashboardMuralText: document.getElementById('dashboardMuralText'),
+  dashboardMuralPreview: document.getElementById('dashboardMuralPreview')
 };
 
+// Theme Controller (Dark Mode / Light Mode / Auto)
+function initTheme() {
+  const savedTheme = localStorage.getItem('tasklist_theme') || 'auto';
+  applyTheme(savedTheme, false);
+
+  if (window.matchMedia) {
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+      if ((localStorage.getItem('tasklist_theme') || 'auto') === 'auto') {
+        applyTheme('auto', false);
+      }
+    });
+  }
+}
+
+function applyTheme(theme, save = true) {
+  if (save) {
+    localStorage.setItem('tasklist_theme', theme);
+  }
+  
+  let isDark = false;
+  if (theme === 'dark') {
+    isDark = true;
+  } else if (theme === 'light') {
+    isDark = false;
+  } else {
+    isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  }
+
+  if (isDark) {
+    document.documentElement.setAttribute('data-theme', 'dark');
+  } else {
+    document.documentElement.removeAttribute('data-theme');
+  }
+
+  // Update theme buttons in Settings modal
+  const themeButtons = {
+    'light': elements.btnSetThemeLight,
+    'dark': elements.btnSetThemeDark,
+    'auto': elements.btnSetThemeAuto
+  };
+  
+  const currentSaved = localStorage.getItem('tasklist_theme') || 'auto';
+  Object.keys(themeButtons).forEach(t => {
+    if (themeButtons[t]) {
+      const isCurrent = t === currentSaved;
+      themeButtons[t].classList.toggle('active', isCurrent);
+      themeButtons[t].style.borderColor = isCurrent ? 'var(--color-primary)' : 'var(--border-standard)';
+      themeButtons[t].style.backgroundColor = isCurrent ? 'var(--color-primary-fixed)' : 'transparent';
+    }
+  });
+}
+
 // Run initialization
+initTheme();
 setupEventListeners();
 checkConfiguration();
 
@@ -289,6 +363,24 @@ function renderApp() {
     activeSidebarEl.classList.add('active');
   }
 
+  // Synchronize Mobile Bottom Nav
+  if (elements.mobileBottomNav) {
+    elements.mobileBottomNav.querySelectorAll('.bottom-nav-item').forEach(btn => {
+      const tab = btn.getAttribute('data-tab');
+      btn.classList.toggle('active', tab === appState.activeTab);
+    });
+
+    if (elements.bottomNavBadgeTasks && appState.dbData && appState.dbData.tasks) {
+      const pendingCount = appState.dbData.tasks.filter(t => !t.completed).length;
+      if (pendingCount > 0) {
+        elements.bottomNavBadgeTasks.innerText = pendingCount;
+        elements.bottomNavBadgeTasks.style.display = 'flex';
+      } else {
+        elements.bottomNavBadgeTasks.style.display = 'none';
+      }
+    }
+  }
+
   // Render active tab view
   if (appState.activeTab === 'dashboard') {
     if (elements.viewDashboard) elements.viewDashboard.style.display = 'flex';
@@ -323,7 +415,7 @@ function renderDashboard() {
   const isGus = appState.currentUser === 'Gus';
   elements.dashboardUserGreeting.innerText = `Olá, ${isGus ? 'Gus 🧔' : 'Isa 👩'}!`;
 
-  // 2. Calculate daily progress (tasks with deadline today or overall active tasks)
+  // 2. Calculate daily progress & couple contributions
   const now = new Date();
   const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
 
@@ -333,27 +425,66 @@ function renderDashboard() {
     return d <= todayEnd;
   });
 
-  const completedTodayTasks = todayTasks.filter(t => t.completed).length;
-  const totalTodayCount = todayTasks.length;
-  let percent = totalTodayCount > 0 ? Math.round((completedTodayTasks / totalTodayCount) * 100) : 0;
+  const baseTasks = todayTasks.length > 0 ? todayTasks : data.tasks;
+  const completedTasks = baseTasks.filter(t => t.completed);
+  const totalCount = baseTasks.length;
+  const percent = totalCount > 0 ? Math.round((completedTasks.length / totalCount) * 100) : 0;
 
-  if (totalTodayCount > 0) {
-    const pendingCount = totalTodayCount - completedTodayTasks;
+  // Breakdown by partner
+  const gusDone = completedTasks.filter(t => t.completedBy === 'Gus' || (t.owner === 'Gus' && !t.completedBy)).length;
+  const isaDone = completedTasks.filter(t => t.completedBy === 'Isa' || (t.owner === 'Isa' && !t.completedBy)).length;
+
+  if (elements.legendGusDone) elements.legendGusDone.innerText = gusDone;
+  if (elements.legendIsaDone) elements.legendIsaDone.innerText = isaDone;
+
+  // Dual Progress SVG Ring
+  // Circumference for r=32: 2 * Math.PI * 32 ~= 201.06
+  const circ = 201.06;
+  if (elements.svgRingGus && elements.svgRingIsa) {
+    if (totalCount > 0) {
+      const gusLen = (gusDone / totalCount) * circ;
+      const isaLen = (isaDone / totalCount) * circ;
+
+      elements.svgRingGus.style.strokeDasharray = `${gusLen} ${circ}`;
+      elements.svgRingGus.style.strokeDashoffset = '0';
+
+      elements.svgRingIsa.style.strokeDasharray = `${isaLen} ${circ}`;
+      elements.svgRingIsa.style.strokeDashoffset = `${-gusLen}`;
+    } else {
+      elements.svgRingGus.style.strokeDasharray = `0 ${circ}`;
+      elements.svgRingIsa.style.strokeDasharray = `0 ${circ}`;
+    }
+  }
+
+  elements.dashboardProgressCircle.innerText = `${percent}%`;
+
+  if (todayTasks.length > 0) {
+    const pendingCount = todayTasks.length - completedTasks.length;
     elements.dashboardProgressSub.innerText = pendingCount > 0 
       ? `${pendingCount} tarefas pendentes para hoje`
       : 'Todas as tarefas de hoje concluídas! 🎉';
-    elements.dashboardProgressCircle.innerText = `${percent}%`;
   } else {
     const generalPending = data.tasks.filter(t => !t.completed).length;
     elements.dashboardProgressSub.innerText = generalPending > 0
       ? `${generalPending} tarefas pendentes no total`
       : 'Nenhuma tarefa pendente! Aproveitem! 🌸';
-    
-    // Overall completion percentage
-    const allTasks = data.tasks;
-    const allCompleted = allTasks.filter(t => t.completed).length;
-    const allPercent = allTasks.length > 0 ? Math.round((allCompleted / allTasks.length) * 100) : 0;
-    elements.dashboardProgressCircle.innerText = `${allPercent}%`;
+  }
+
+  // 2.1 Latest Mural Note Preview
+  if (elements.dashboardMuralPreviewContainer) {
+    const notes = data.notes || [];
+    if (notes.length > 0) {
+      const lastNote = notes[notes.length - 1];
+      elements.dashboardMuralPreviewContainer.style.display = 'block';
+      if (elements.dashboardMuralAuthor) {
+        elements.dashboardMuralAuthor.innerText = lastNote.user ? `De ${lastNote.user}` : 'Recado';
+      }
+      if (elements.dashboardMuralText) {
+        elements.dashboardMuralText.innerText = `"${lastNote.text}"`;
+      }
+    } else {
+      elements.dashboardMuralPreviewContainer.style.display = 'none';
+    }
   }
 
   // 3. Highlight Urgent/Overdue Tasks
@@ -950,13 +1081,22 @@ function addTaskListeners() {
     });
   });
   
-  // Checkbox toggle
+  // Checkbox toggle with celebratory micro-interaction
   document.querySelectorAll('.task-checkbox').forEach(chk => {
     chk.addEventListener('change', (e) => {
       e.stopPropagation();
       const card = chk.closest('.task-card');
       const taskId = card.getAttribute('data-task-id');
-      toggleTaskCompletion(taskId, chk.checked);
+      const isChecked = chk.checked;
+
+      if (isChecked) {
+        card.classList.add('completing');
+        setTimeout(() => {
+          toggleTaskCompletion(taskId, true);
+        }, 280);
+      } else {
+        toggleTaskCompletion(taskId, false);
+      }
     });
   });
   
@@ -1567,6 +1707,68 @@ function setupEventListeners() {
       });
     }
   });
+
+  // Mobile Bottom Navigation Tab Switching
+  if (elements.mobileBottomNav) {
+    elements.mobileBottomNav.querySelectorAll('.bottom-nav-item[data-tab]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        const tab = btn.getAttribute('data-tab');
+        appState.activeTab = tab;
+        if (tab === 'tasks') {
+          appState.activeFilter = 'all';
+          appState.activeListId = 'all';
+        }
+        closeMobileSidebar();
+        renderApp();
+      });
+    });
+
+    if (elements.bottomNavBtnMore) {
+      elements.bottomNavBtnMore.addEventListener('click', (e) => {
+        e.preventDefault();
+        elements.sidebar.classList.add('open');
+        elements.sidebarOverlay.classList.add('open');
+      });
+    }
+  }
+
+  // Theme Toggle Button (Sidebar footer)
+  if (elements.btnToggleTheme) {
+    elements.btnToggleTheme.addEventListener('click', (e) => {
+      e.preventDefault();
+      const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+      applyTheme(isDark ? 'light' : 'dark', true);
+    });
+  }
+
+  // Settings Modal Theme Buttons
+  if (elements.btnSetThemeLight) {
+    elements.btnSetThemeLight.addEventListener('click', (e) => {
+      e.preventDefault();
+      applyTheme('light', true);
+    });
+  }
+  if (elements.btnSetThemeDark) {
+    elements.btnSetThemeDark.addEventListener('click', (e) => {
+      e.preventDefault();
+      applyTheme('dark', true);
+    });
+  }
+  if (elements.btnSetThemeAuto) {
+    elements.btnSetThemeAuto.addEventListener('click', (e) => {
+      e.preventDefault();
+      applyTheme('auto', true);
+    });
+  }
+
+  // Dashboard Mural Note Preview click
+  if (elements.dashboardMuralPreview) {
+    elements.dashboardMuralPreview.addEventListener('click', () => {
+      appState.activeTab = 'notes';
+      renderApp();
+    });
+  }
   
   // Quick Filters Inside Tasks View
   elements.btnFilterMyTasks.addEventListener('click', () => {
