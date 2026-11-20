@@ -1,6 +1,9 @@
 import * as db from './firebase-db.js';
 import * as notifications from './notifications.js';
 import * as ifttt from './ifttt-webhook.js';
+import * as agenda from './agenda.js';
+import * as weather from './weather.js';
+import * as push from './push.js';
 import {
   GUS_AVATAR_SVG,
   ISA_AVATAR_SVG,
@@ -46,11 +49,18 @@ const appState = {
   openInlineForms: { Gus: false, Isa: false, Shared: false },
   selectedInlineEmojis: { Gus: '📋', Isa: '📚', Shared: '💛' },
   selectedQuickAddEmoji: '✨',
-  draggedTaskId: null
+  draggedTaskId: null,
+  calendar: { updatedAt: null, events: [] },   // Google Agenda (nó calendar/{chave})
+  settings: {},                                 // Configurações compartilhadas (nó settings/{chave})
+  weather: null,
+  pendingShare: null                            // Conteúdo recebido via "Compartilhar" do celular
 };
 
 let unsubscribeData = null;
 let unsubscribeConn = null;
+let unsubscribeCalendar = null;
+let unsubscribeSettings = null;
+let weatherTimer = null;
 let lastIsMobile = window.innerWidth <= 860;
 let pendingSyncRender = false;
 
@@ -348,7 +358,26 @@ const el = {
   routinesModal: document.getElementById('routinesModal'),
   btnCloseRoutinesModal: document.getElementById('btnCloseRoutinesModal'),
   btnConfirmCloseRoutines: document.getElementById('btnConfirmCloseRoutines'),
-  routinesListGrid: document.getElementById('routinesListGrid')
+  routinesListGrid: document.getElementById('routinesListGrid'),
+
+  // Integrações: Agenda, Clima, Painel, Push
+  dashboardAgendaList: document.getElementById('dashboardAgendaList'),
+  dashboardAgendaHint: document.getElementById('dashboardAgendaHint'),
+  dashboardWeatherChip: document.getElementById('dashboardWeatherChip'),
+  btnDashboardOpenCalendar: document.getElementById('btnDashboardOpenCalendar'),
+  calendarDayEventsList: document.getElementById('calendarDayEventsList'),
+  btnCopyPainelLink: document.getElementById('btnCopyPainelLink'),
+  weatherCityForm: document.getElementById('weatherCityForm'),
+  inputWeatherCity: document.getElementById('inputWeatherCity'),
+  weatherCityResults: document.getElementById('weatherCityResults'),
+  weatherCityCurrent: document.getElementById('weatherCityCurrent'),
+  calendarSyncStatus: document.getElementById('calendarSyncStatus'),
+  btnEnablePush: document.getElementById('btnEnablePush'),
+  pushStatusHint: document.getElementById('pushStatusHint'),
+  setupPushSenderId: document.getElementById('setupPushSenderId'),
+  setupPushAppId: document.getElementById('setupPushAppId'),
+  setupPushVapid: document.getElementById('setupPushVapid'),
+  btnSavePushConfig: document.getElementById('btnSavePushConfig')
 };
 
 // ============================================================================
@@ -551,6 +580,7 @@ function init() {
   renderQuickAddEmojiTray();
   renderSetupAvatars();
   setupEventListeners();
+  consumeShareTarget();
   checkConfiguration();
 }
 
@@ -566,6 +596,98 @@ function renderSetupAvatars() {
 function teardownListeners() {
   if (unsubscribeData) { unsubscribeData(); unsubscribeData = null; }
   if (unsubscribeConn) { unsubscribeConn(); unsubscribeConn = null; }
+  if (unsubscribeCalendar) { unsubscribeCalendar(); unsubscribeCalendar = null; }
+  if (unsubscribeSettings) { unsubscribeSettings(); unsubscribeSettings = null; }
+}
+
+// Assina os nós de integração (agenda + configurações compartilhadas)
+function subscribeIntegrations() {
+  unsubscribeCalendar = db.listenToCalendar(cal => {
+    appState.calendar = cal;
+    if (appState.dbData && !isTypingInDynamicInput()) renderApp();
+    updateSettingsModalUI();
+  });
+  unsubscribeSettings = db.listenToSettings(settings => {
+    const prevLoc = JSON.stringify((appState.settings || {}).weather || null);
+    appState.settings = settings || {};
+    if (JSON.stringify(appState.settings.weather || null) !== prevLoc) refreshWeather(true);
+    updateSettingsModalUI();
+  });
+}
+
+function refreshWeather(force = false) {
+  const loc = appState.settings && appState.settings.weather;
+  if (!loc) {
+    appState.weather = null;
+    renderWeatherChip();
+    return;
+  }
+  weather.fetchWeather(loc, { force })
+    .then(w => { appState.weather = w; renderWeatherChip(); })
+    .catch(err => console.warn('Clima indisponível:', err));
+  if (!weatherTimer) weatherTimer = setInterval(() => refreshWeather(false), 20 * 60 * 1000);
+}
+
+function renderWeatherChip() {
+  if (!el.dashboardWeatherChip) return;
+  const w = appState.weather;
+  if (!w) {
+    el.dashboardWeatherChip.style.display = 'none';
+    return;
+  }
+  el.dashboardWeatherChip.style.display = 'inline-flex';
+  el.dashboardWeatherChip.title = `${w.label} em ${w.name} — sensação ${w.feels}°`;
+  el.dashboardWeatherChip.innerHTML = `<span>${w.icon}</span><strong>${w.temp}°</strong>${w.rainAlert ? `<span class="weather-chip-rain">${escapeHTML(w.rainAlert)}</span>` : ''}`;
+}
+
+// ---------------------------------------------------------------------------
+// Web Share Target: "Compartilhar → tasklist" no celular
+//  - link (ex.: produto) -> abre "Novo Desejo" já preenchido
+//  - texto              -> abre "Nova Tarefa Rápida" já preenchida
+// ---------------------------------------------------------------------------
+function consumeShareTarget() {
+  const params = new URLSearchParams(window.location.search);
+  const title = params.get('share_title') || '';
+  const text = params.get('share_text') || '';
+  let url = params.get('share_url') || '';
+  if (!title && !text && !url) return;
+
+  // Muitos apps mandam o link dentro do texto
+  if (!url) {
+    const m = text.match(/https?:\/\/\S+/);
+    if (m) url = m[0];
+  }
+  const cleanText = text.replace(url, '').trim();
+  appState.pendingShare = { title: title || cleanText, text: cleanText, url };
+  window.history.replaceState({}, document.title, window.location.origin + window.location.pathname);
+}
+
+function applyPendingShare() {
+  const share = appState.pendingShare;
+  if (!share || !appState.dbData) return;
+  appState.pendingShare = null;
+
+  if (share.url) {
+    appState.activeTab = 'wishlist';
+    renderApp();
+    el.inputWishTitle.value = (share.title || '').slice(0, 120);
+    el.inputWishLink.value = share.url;
+    el.inputWishNotes.value = share.text && share.text !== share.title ? share.text.slice(0, 200) : '';
+    el.addWishModal.classList.add('open');
+    showToast('Link recebido! Confira e salve na Lista de Desejos 🎁');
+  } else {
+    el.btnFabAddTask.click();
+    el.inputModalTaskTitle.value = (share.title || share.text).slice(0, 140);
+  }
+}
+
+function generatePainelLink() {
+  const config = db.getSavedConfig();
+  const base = window.location.origin + window.location.pathname.replace(/[^/]*$/, '') + 'painel.html';
+  if (!config) return base;
+  const payload = { firebaseConfig: config.firebaseConfig, secretKey: config.secretKey };
+  const base64 = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+  return base + '?config=' + encodeURIComponent(base64);
 }
 
 function checkConfiguration() {
@@ -584,6 +706,7 @@ function checkConfiguration() {
     if (ok) {
       unsubscribeConn = db.listenToConnectionStatus(updateSyncStatusUI);
       unsubscribeData = db.listenToData(handleDataSync);
+      subscribeIntegrations();
       updateSettingsModalUI();
     } else {
       showToast('Erro ao iniciar Firebase. Verifique suas credenciais.', 'error');
@@ -594,6 +717,7 @@ function checkConfiguration() {
     el.setupOverlay.classList.remove('open');
     updateSyncStatusUI('local');
     unsubscribeData = db.listenToData(handleDataSync);
+    subscribeIntegrations();
     updateSettingsModalUI();
   } else {
     showSetupScreen();
@@ -642,6 +766,7 @@ function handleDataSync(freshData) {
     pendingSyncRender = false;
     renderApp();
   }
+  if (appState.pendingShare) applyPendingShare();
 }
 
 function saveDataAndRender(data) {
@@ -978,6 +1103,9 @@ function renderDashboard() {
     });
   });
 
+  renderDashboardAgenda();
+  renderWeatherChip();
+
   // Latest Mural Note Preview (prioritize pinned, then latest)
   const notes = [...(data.notes || [])];
   if (notes.length > 0) {
@@ -1080,6 +1208,67 @@ function renderDashboard() {
       renderApp();
     });
   });
+}
+
+// Agenda de Hoje (Resumo): eventos do Google Agenda + tarefas com prazo hoje
+function renderAgendaItemsHTML(items) {
+  return items.map(item => {
+    const meta = agenda.ownerMeta(item.owner);
+    if (item.kind === 'event') {
+      return `
+        <div class="agenda-item event ${meta.cls}">
+          <span class="agenda-time">${escapeHTML(item.timeLabel)}${item.endLabel ? `<small>até ${escapeHTML(item.endLabel)}</small>` : ''}</span>
+          <span class="agenda-marker ${meta.cls}" aria-hidden="true"></span>
+          <div class="agenda-body">
+            <span class="agenda-title">${escapeHTML(item.title)}</span>
+            ${item.location ? `<span class="agenda-sub">📍 ${escapeHTML(item.location)}</span>` : ''}
+          </div>
+          <span class="owner-pill ${meta.cls}">${meta.name}</span>
+        </div>`;
+    }
+    return `
+      <div class="agenda-item task ${item.completed ? 'done' : ''}">
+        <span class="agenda-time">${escapeHTML(item.timeLabel)}</span>
+        <button type="button" class="tactile-checkbox agenda-task-check ${item.completed ? 'checked' : ''}" data-task-id="${item.id}" aria-label="Concluir ${escapeHTML(item.title)}">
+          ${item.completed ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>' : ''}
+        </button>
+        <div class="agenda-body">
+          <span class="agenda-title">${escapeHTML(item.title)}</span>
+          <span class="agenda-sub">Tarefa</span>
+        </div>
+        <span class="owner-pill ${meta.cls}">${meta.name}</span>
+      </div>`;
+  }).join('');
+}
+
+function bindAgendaTaskChecks(container) {
+  container.querySelectorAll('.agenda-task-check').forEach(btn => {
+    btn.addEventListener('click', () => {
+      toggleTaskCompletion(btn.getAttribute('data-task-id'), !btn.classList.contains('checked'));
+    });
+  });
+}
+
+function renderDashboardAgenda() {
+  if (!el.dashboardAgendaList) return;
+  const today = new Date();
+  const events = appState.calendar.events || [];
+  const items = agenda.buildDayAgenda(appState.dbData.tasks, events, today);
+
+  if (items.length === 0) {
+    const next = agenda.upcomingDays(appState.dbData.tasks, events, today, 3)[0];
+    el.dashboardAgendaList.innerHTML = `
+      <p class="agenda-empty">Nada marcado para hoje 🌿${next ? ` Próximo: <strong>${agenda.dayLabel(next.day)}</strong> — ${escapeHTML(next.items[0].title)}` : ''}</p>`;
+  } else {
+    el.dashboardAgendaList.innerHTML = renderAgendaItemsHTML(items);
+    bindAgendaTaskChecks(el.dashboardAgendaList);
+  }
+
+  if (el.dashboardAgendaHint) {
+    el.dashboardAgendaHint.textContent = appState.calendar.updatedAt
+      ? `Google Agenda sincronizado ${agenda.relativeSyncLabel(appState.calendar.updatedAt)}`
+      : 'Conecte o Google Agenda de vocês dois (Configurações → Google Agenda).';
+  }
 }
 
 // ============================================================================
@@ -2096,15 +2285,24 @@ function renderCalendar() {
       return td.getFullYear() === year && td.getMonth() === month && td.getDate() === day;
     });
 
+    const dayEvents = agenda.eventsOnDay(appState.calendar.events, cellDate);
+
     let dotsHtml = '';
-    if (dayTasks.length > 0) {
-      dotsHtml = `<div class="calendar-tasks-indicator">` + dayTasks.slice(0, 8).map(t => {
+    if (dayTasks.length > 0 || dayEvents.length > 0) {
+      const eventMarks = dayEvents.slice(0, 4).map(ev => {
+        const meta = agenda.ownerMeta(ev.owner);
+        return `<span class="calendar-event-bar" style="background:${meta.color}" title="📅 ${escapeHTML(ev.title)}">${escapeHTML(ev.title)}</span>`;
+      }).join('');
+      const extraEvents = dayEvents.length > 4 ? `<span class="calendar-event-more">+${dayEvents.length - 4}</span>` : '';
+      const taskDots = dayTasks.slice(0, 8).map(t => {
         let bg = '#ffec99';
         if (t.owner === 'Gus') bg = '#aee8e4';
         if (t.owner === 'Isa') bg = '#ffc4b0';
         const op = t.completed ? 'opacity: 0.35;' : '';
         return `<span class="calendar-task-dot" style="background:${bg};${op}" title="${escapeHTML(t.title)}"></span>`;
-      }).join('') + `</div>`;
+      }).join('');
+      dotsHtml = `<div class="calendar-events-stack">${eventMarks}${extraEvents}</div>`
+        + (taskDots ? `<div class="calendar-tasks-indicator">${taskDots}</div>` : '');
     }
 
     html += `
@@ -2149,9 +2347,21 @@ function renderCalendarDayPanel() {
            td.getDate() === d.getDate();
   });
 
-  el.calendarDayPanelSub.textContent = dayTasks.length === 0
+  const dayEvents = agenda.buildDayAgenda([], appState.calendar.events, d);
+  if (el.calendarDayEventsList) {
+    if (dayEvents.length > 0) {
+      el.calendarDayEventsList.style.display = 'flex';
+      el.calendarDayEventsList.innerHTML = renderAgendaItemsHTML(dayEvents);
+    } else {
+      el.calendarDayEventsList.style.display = 'none';
+      el.calendarDayEventsList.innerHTML = '';
+    }
+  }
+
+  const eventsLabel = dayEvents.length > 0 ? ` · ${dayEvents.length} compromisso${dayEvents.length === 1 ? '' : 's'} na agenda` : '';
+  el.calendarDayPanelSub.textContent = (dayTasks.length === 0
     ? 'Nenhuma tarefa com prazo neste dia'
-    : `${dayTasks.filter(t => t.completed).length} de ${dayTasks.length} concluída(s)`;
+    : `${dayTasks.filter(t => t.completed).length} de ${dayTasks.length} concluída(s)`) + eventsLabel;
 
   if (dayTasks.length === 0) {
     el.calendarDayTasksList.innerHTML = '<p class="panel-sub" style="font-style:italic;">Dia livre! Adicione uma tarefa abaixo se quiser agendar algo.</p>';
@@ -2997,6 +3207,31 @@ function updateSettingsModalUI() {
     else el.notificationStatusHint.textContent = 'Receba avisos quando seu par concluir tarefas ou enviar reações.';
   }
 
+  // Integrações
+  const settings = appState.settings || {};
+  if (el.weatherCityCurrent) {
+    el.weatherCityCurrent.textContent = settings.weather
+      ? `📍 Cidade atual: ${settings.weather.label || settings.weather.name}`
+      : 'Nenhuma cidade definida.';
+  }
+  if (el.calendarSyncStatus) {
+    const cal = appState.calendar || {};
+    el.calendarSyncStatus.textContent = cal.updatedAt
+      ? `✅ ${cal.events.length} compromissos sincronizados ${agenda.relativeSyncLabel(cal.updatedAt)}.`
+      : '⏳ Aguardando o sincronizador (Google Apps Script) gravar os eventos.';
+  }
+  if (el.pushStatusHint) {
+    const support = push.pushSupportStatus();
+    if (!support.ok) el.pushStatusHint.textContent = support.reason;
+    else if (!push.isPushConfigured(settings)) el.pushStatusHint.textContent = 'Preencha a configuração do Cloud Messaging abaixo (uma vez só).';
+    else if (push.isPushEnabledHere(appState.currentUser)) el.pushStatusHint.textContent = `✅ Push ativo neste aparelho para ${ownerDisplayName(appState.currentUser)}.`;
+    else el.pushStatusHint.textContent = 'Receba avisos mesmo com o app fechado (carinhos, tarefas, resumo matinal).';
+    const p = settings.push || {};
+    if (el.setupPushSenderId && document.activeElement !== el.setupPushSenderId) el.setupPushSenderId.value = p.messagingSenderId || '';
+    if (el.setupPushAppId && document.activeElement !== el.setupPushAppId) el.setupPushAppId.value = p.appId || '';
+    if (el.setupPushVapid && document.activeElement !== el.setupPushVapid) el.setupPushVapid.value = p.vapidKey || '';
+  }
+
   const config = db.getSavedConfig();
   if (config) {
     el.settingsConnectedDb.textContent = config.firebaseConfig.databaseURL;
@@ -3457,6 +3692,78 @@ function setupEventListeners() {
     ifttt.fireTestWebhook(appState.dbData, appState.currentUser)
       .then(() => showToast('Webhook IFTTT disparado com sucesso! ☀️'))
       .catch(err => showToast('Erro no IFTTT: ' + err, 'error'));
+  });
+
+  // ---- Integrações: Painel, Clima, Push, Agenda ----
+  el.btnCopyPainelLink.addEventListener('click', () => {
+    if (!db.getSavedConfig()) {
+      showToast('Conecte o Firebase primeiro: o painel da Echo precisa do banco em tempo real.', 'error');
+      return;
+    }
+    copyTextSafe(generatePainelLink())
+      .then(() => showToast('Link do Painel copiado! Cole na skill da Alexa 📺'))
+      .catch(() => showToast('Erro ao copiar link', 'error'));
+  });
+
+  el.btnDashboardOpenCalendar.addEventListener('click', () => {
+    appState.activeTab = 'calendar';
+    appState.selectedCalendarDay = new Date();
+    appState.currentMonth = new Date();
+    renderApp();
+  });
+
+  el.weatherCityForm.addEventListener('submit', () => {
+    const q = el.inputWeatherCity.value.trim();
+    if (q.length < 2) return;
+    el.weatherCityResults.innerHTML = '<span class="settings-hint">Buscando...</span>';
+    weather.searchCity(q)
+      .then(results => {
+        if (results.length === 0) {
+          el.weatherCityResults.innerHTML = '<span class="settings-hint">Nenhuma cidade encontrada.</span>';
+          return;
+        }
+        el.weatherCityResults.innerHTML = results.map((r, i) =>
+          `<button type="button" class="city-result-btn" data-city-idx="${i}">📍 ${escapeHTML(r.label)}</button>`).join('');
+        el.weatherCityResults.querySelectorAll('[data-city-idx]').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const r = results[Number(btn.getAttribute('data-city-idx'))];
+            db.updateSettings('weather', r)
+              .then(() => {
+                el.weatherCityResults.innerHTML = '';
+                el.inputWeatherCity.value = '';
+                showToast(`Clima configurado para ${r.name}! 🌦️`);
+              })
+              .catch(() => showToast('Erro ao salvar cidade. Atualize as regras do Firebase (settings).', 'error'));
+          });
+        });
+      })
+      .catch(() => { el.weatherCityResults.innerHTML = '<span class="settings-hint">Erro ao buscar cidade.</span>'; });
+  });
+
+  el.btnSavePushConfig.addEventListener('click', () => {
+    const value = {
+      messagingSenderId: el.setupPushSenderId.value.trim(),
+      appId: el.setupPushAppId.value.trim(),
+      vapidKey: el.setupPushVapid.value.trim()
+    };
+    if (!value.messagingSenderId || !value.appId || !value.vapidKey) {
+      showToast('Preencha os três campos do Cloud Messaging.', 'error');
+      return;
+    }
+    db.updateSettings('push', value)
+      .then(() => showToast('Configuração de push salva para os dois aparelhos! 📲'))
+      .catch(() => showToast('Erro ao salvar. Atualize as regras do Firebase (settings).', 'error'));
+  });
+
+  el.btnEnablePush.addEventListener('click', () => {
+    el.btnEnablePush.disabled = true;
+    push.enablePush(appState.settings, appState.currentUser)
+      .then(() => {
+        updateSettingsModalUI();
+        showToast('Push ativado! Você será avisado mesmo com o app fechado 📲');
+      })
+      .catch(err => showToast(err.message || String(err), 'error'))
+      .finally(() => { el.btnEnablePush.disabled = false; });
   });
 
   // JSON Backup Export & Import

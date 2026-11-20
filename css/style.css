@@ -4348,3 +4348,209 @@ textarea.form-control {
 .btn-focus-task:hover {
   background: #1e293b;
 }
+
+/* ==========================================================================
+   INTEGRAÇÕES — Agenda de Hoje (Google Agenda), Clima, Configurações
+   ========================================================================== */
+
+.agenda-heading-right {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.weather-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.28rem 0.7rem;
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface-2);
+  border: 2px solid var(--border-color);
+  box-shadow: var(--shadow-btn);
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.weather-chip strong { font-weight: 800; }
+.weather-chip-rain {
+  color: var(--accent-sky);
+  font-weight: 700;
+  font-size: 0.74rem;
+}
+
+.agenda-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.agenda-item {
+  display: grid;
+  grid-template-columns: 4.2rem auto 1fr auto;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.6rem 0.8rem;
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  border: var(--border-item);
+  box-shadow: var(--shadow-item);
+}
+.agenda-item.event.gus { border-left: 7px solid var(--gus-bg); }
+.agenda-item.event.isa { border-left: 7px solid var(--isa-bg); }
+.agenda-item.event.shared { border-left: 7px solid var(--shared-bg); }
+.agenda-item.task.done .agenda-title {
+  text-decoration: line-through;
+  opacity: 0.55;
+}
+.agenda-item .tactile-checkbox {
+  width: 24px;
+  height: 24px;
+}
+
+.agenda-time {
+  display: flex;
+  flex-direction: column;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 0.92rem;
+  color: var(--text-chalk);
+  line-height: 1.15;
+}
+.agenda-time small {
+  font-family: var(--font-sans);
+  font-size: 0.66rem;
+  font-weight: 600;
+  color: var(--text-subtle);
+}
+
+.agenda-marker {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  border: 2px solid #0f172a;
+  position: relative;
+}
+.agenda-marker::after {
+  content: '';
+  position: absolute;
+  inset: 5px 4px 4px;
+  border-top: 2.5px solid #0f172a;
+}
+.agenda-marker.gus { background: var(--gus-bg); }
+.agenda-marker.isa { background: var(--isa-bg); }
+.agenda-marker.shared { background: var(--shared-bg); }
+
+.agenda-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.agenda-title {
+  font-weight: 700;
+  font-size: 0.92rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agenda-sub {
+  font-size: 0.72rem;
+  color: var(--text-subtle);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agenda-empty {
+  padding: 0.85rem 1rem;
+  border-radius: var(--radius-md);
+  border: 2px dashed var(--border-soft);
+  color: var(--text-muted);
+  font-size: 0.88rem;
+}
+.agenda-sync-hint {
+  font-size: 0.7rem;
+  color: var(--text-subtle);
+  text-align: right;
+}
+
+/* Calendário: marcadores de eventos do Google Agenda */
+.cal-event-mark {
+  display: inline-block;
+  width: 14px;
+  height: 8px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--gus-bg) 50%, var(--isa-bg) 50%);
+  border: 1.5px solid #0f172a;
+}
+.calendar-events-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.calendar-event-bar {
+  display: block;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1.35;
+  color: #0f172a;
+  padding: 0 4px;
+  border-radius: 4px;
+  border: 1.5px solid #0f172a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.calendar-event-more {
+  font-size: 0.6rem;
+  font-weight: 800;
+  color: var(--text-muted);
+}
+.calendar-cell.selected .calendar-event-more { color: #0f172a; }
+.calendar-day-events { margin-bottom: 0.25rem; }
+
+@media (max-width: 860px) {
+  .calendar-event-bar {
+    font-size: 0;
+    height: 6px;
+    padding: 0;
+    border-width: 1px;
+  }
+  .agenda-item {
+    grid-template-columns: 3.4rem auto 1fr;
+  }
+  .agenda-item .owner-pill { display: none; }
+}
+
+/* Configurações: cidade do clima e push */
+.city-results {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.city-result-btn {
+  padding: 0.35rem 0.7rem;
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface-2);
+  border: 2px solid var(--border-color);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+.city-result-btn:hover { background: var(--accent-amber); color: #0f172a; }
+
+.settings-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  font-size: 0.8rem;
+}
+.settings-details summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-weight: 700;
+  margin-bottom: 0.4rem;
+}
+.settings-details[open] > *:not(summary) { margin-top: 0.4rem; }

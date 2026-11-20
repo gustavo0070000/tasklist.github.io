@@ -9,12 +9,13 @@ let confirmResolver = null;
 // --- Sound Preferences & Synthesizer ---
 
 export function isSoundEnabled() {
-  const saved = localStorage.getItem('tasklist_sound_enabled');
+  let saved = null;
+  try { saved = localStorage.getItem('tasklist_sound_enabled'); } catch (e) { saved = null; }
   return saved === null ? true : saved === 'true';
 }
 
 export function setSoundEnabled(enabled) {
-  localStorage.setItem('tasklist_sound_enabled', enabled ? 'true' : 'false');
+  try { localStorage.setItem('tasklist_sound_enabled', enabled ? 'true' : 'false'); } catch (e) { /* ignore */ }
 }
 
 function getAudioContext() {

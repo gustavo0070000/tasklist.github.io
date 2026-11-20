@@ -127,6 +127,14 @@
                 <span class="nav-item-label">Conquistas</span>
               </a>
             </li>
+            <li>
+              <a href="painel.html" id="tabPainel" class="nav-item" title="Tela grande para a Echo Show / TV">
+                <span class="nav-item-icon">
+                  <svg class="nav-svg-icon" viewBox="0 0 24 24"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg>
+                </span>
+                <span class="nav-item-label">Modo Painel</span>
+              </a>
+            </li>
           </ul>
         </nav>
 
@@ -318,6 +326,21 @@
           <!-- Quick Couple Breakdown Cards (Click to filter Tasks by person) -->
           <div id="dashboardCoupleCards" class="couple-summary-grid">
             <!-- Populated dynamically: Gustavo (Mint), Isabella (Peach), Ambos (Butter Yellow) -->
+          </div>
+
+          <!-- Agenda de Hoje: Google Agenda (Gustavo + Isabella) + tarefas com prazo + clima -->
+          <div id="dashboardAgendaBlock" class="dashboard-block agenda-block">
+            <div class="section-heading-row">
+              <h2 class="section-heading">📅 Agenda de Hoje</h2>
+              <div class="agenda-heading-right">
+                <span id="dashboardWeatherChip" class="weather-chip" style="display: none;"></span>
+                <button id="btnDashboardOpenCalendar" class="btn-ghost-sm">Calendário →</button>
+              </div>
+            </div>
+            <div id="dashboardAgendaList" class="agenda-list">
+              <!-- Dynamically populated -->
+            </div>
+            <p id="dashboardAgendaHint" class="agenda-sync-hint"></p>
           </div>
 
           <!-- Quick 1-Tap Couple Nudges (Carinho & Lembretes Fofos) -->
@@ -558,6 +581,7 @@
                 <span class="cal-leg-item"><span class="cal-dot gus"></span>Gustavo</span>
                 <span class="cal-leg-item"><span class="cal-dot isa"></span>Isabella</span>
                 <span class="cal-leg-item"><span class="cal-dot shared"></span>Ambos</span>
+                <span class="cal-leg-item"><span class="cal-event-mark"></span>Google Agenda</span>
               </div>
               <button id="btnCalendarToday" class="btn-tactile btn-amber-sm">Hoje</button>
             </div>
@@ -576,6 +600,7 @@
               </div>
               <button id="btnOpenDayInTasks" class="btn-tactile btn-surface-sm">Abrir em Tarefas →</button>
             </div>
+            <div id="calendarDayEventsList" class="agenda-list calendar-day-events" style="display: none;"></div>
             <div id="calendarDayTasksList" class="calendar-day-tasks"></div>
             <form id="calendarDayAddForm" class="calendar-day-add-form" onsubmit="return false;">
               <input type="text" id="inputCalendarDayTask" placeholder="Nova tarefa para este dia..." autocomplete="off">
@@ -774,6 +799,24 @@
       "$secret_key": {
         ".read": "true",
         ".write": "true"
+      }
+    },
+    "settings": {
+      "$secret_key": {
+        ".read": "true",
+        ".write": "true"
+      }
+    },
+    "push": {
+      "$secret_key": {
+        ".read": "false",
+        ".write": "true"
+      }
+    },
+    "calendar": {
+      "$secret_key": {
+        ".read": "true",
+        ".write": "false"
       }
     }
   }
@@ -1029,6 +1072,48 @@
             <img id="inviteQrCode" src="" alt="QR Code de Convite" style="display: none;">
             <span id="inviteQrCodeText" class="settings-hint" style="display: none;">Aponte a câmera do outro celular para conectar automaticamente</span>
           </div>
+        </div>
+
+        <!-- Modo Painel / Echo Show -->
+        <div class="settings-block">
+          <label class="form-label">📺 Modo Painel (Echo Show 15 / TV)</label>
+          <div class="radio-group">
+            <a href="painel.html" class="btn-tactile btn-surface-sm" style="flex: 1; text-align: center;">Abrir Painel</a>
+            <button type="button" id="btnCopyPainelLink" class="btn-tactile btn-surface-sm" style="flex: 1;">Copiar link p/ Alexa</button>
+          </div>
+          <p class="settings-hint">O link já leva a conexão do banco. Use na skill da Alexa (veja <code>INTEGRACOES.md</code>) ou abra no navegador Silk da Echo.</p>
+        </div>
+
+        <!-- Clima (Open-Meteo) -->
+        <div class="settings-block">
+          <label class="form-label">🌦️ Clima no Resumo e no Painel</label>
+          <form id="weatherCityForm" class="form-row-2" onsubmit="return false;">
+            <input type="text" id="inputWeatherCity" class="form-control" placeholder="Cidade (ex: Curitiba)" autocomplete="off">
+            <button type="submit" class="btn-tactile btn-surface-sm">Buscar</button>
+          </form>
+          <div id="weatherCityResults" class="city-results"></div>
+          <p id="weatherCityCurrent" class="settings-hint">Nenhuma cidade definida.</p>
+        </div>
+
+        <!-- Google Agenda -->
+        <div class="settings-block">
+          <label class="form-label">📅 Google Agenda (Gustavo + Isabella)</label>
+          <p id="calendarSyncStatus" class="settings-hint">Aguardando o sincronizador (Google Apps Script).</p>
+          <p class="settings-hint">A sincronização roda no Google Apps Script a cada 15 min. Passo a passo em <code>INTEGRACOES.md</code>.</p>
+        </div>
+
+        <!-- Push FCM -->
+        <div class="settings-block">
+          <label class="form-label">📲 Notificações com o app fechado (Push)</label>
+          <button type="button" id="btnEnablePush" class="btn-tactile btn-surface-sm btn-full">Ativar Push neste aparelho</button>
+          <p id="pushStatusHint" class="settings-hint"></p>
+          <details class="settings-details">
+            <summary>Configuração do Firebase Cloud Messaging (uma vez só)</summary>
+            <input type="text" id="setupPushSenderId" class="form-control" placeholder="messagingSenderId (ex: 1234567890)" autocomplete="off">
+            <input type="text" id="setupPushAppId" class="form-control" placeholder="appId (ex: 1:123:web:abc...)" autocomplete="off">
+            <input type="text" id="setupPushVapid" class="form-control" placeholder="Chave VAPID (Web Push certificates)" autocomplete="off">
+            <button type="button" id="btnSavePushConfig" class="btn-tactile btn-surface-sm btn-full">Salvar para os dois aparelhos</button>
+          </details>
         </div>
 
         <!-- IFTTT Morning Summary -->
