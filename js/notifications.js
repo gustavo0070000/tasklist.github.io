@@ -69,7 +69,7 @@ export function showNotification(title, body) {
 }
 
 function displayActor(log) {
-  if (log.via === 'alexa') return 'Alexa';
+  if (log.via === 'alexa' && log.action !== 'nudge') return 'Alexa';
   if (log.user === 'Gus') return 'Gustavo';
   if (log.user === 'Isa') return 'Isabella';
   if (log.via === 'painel') return 'O painel';
