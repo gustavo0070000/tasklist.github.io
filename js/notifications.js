@@ -122,6 +122,9 @@ export function checkNewActivities(history, currentUser) {
         case 'add_project':
           body = `${logToNotify.user} criou uma nova meta: "${logToNotify.projectName}" 🚀`;
           break;
+        case 'nudge':
+          body = `${logToNotify.user} enviou: ${logToNotify.nudgeText}`;
+          break;
         default:
           body = `${logToNotify.user} atualizou a lista de tarefas.`;
       }

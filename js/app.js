@@ -51,6 +51,58 @@ const appState = {
 
 let unsubscribeData = null;
 let unsubscribeConn = null;
+let lastIsMobile = window.innerWidth <= 860;
+let pendingSyncRender = false;
+
+const focusTimer = {
+  durationSec: 25 * 60,
+  remainingSec: 25 * 60,
+  running: false,
+  intervalId: null,
+  taskId: null,
+  taskTitle: null
+};
+
+const COUPLE_ROUTINES = [
+  {
+    id: 'faxina',
+    title: '🧹 Faxina de Fim de Semana',
+    tasks: [
+      { title: 'Limpar banheiros', owner: 'Isa', priority: 'High', emoji: '🫧', svgKey: 'bathroom' },
+      { title: 'Limpar cozinha e fogão', owner: 'Gus', priority: 'High', emoji: '🧹', svgKey: 'kitchen' },
+      { title: 'Trocar roupas de cama', owner: 'Shared', priority: 'Medium', emoji: '🛏️', svgKey: 'home' },
+      { title: 'Tirar o lixo e recicláveis', owner: 'Gus', priority: 'Medium', emoji: '🗑️', svgKey: 'trash' }
+    ]
+  },
+  {
+    id: 'mercado',
+    title: '🛒 Compras da Semana',
+    tasks: [
+      { title: 'Conferir geladeira e despensa', owner: 'Shared', priority: 'Medium', emoji: '📋', svgKey: 'forms' },
+      { title: 'Comprar frutas, verduras e pão', owner: 'Shared', priority: 'High', emoji: '🛒', svgKey: 'market' },
+      { title: 'Repor produtos de limpeza', owner: 'Isa', priority: 'Low', emoji: '🫧', svgKey: 'bathroom' }
+    ]
+  },
+  {
+    id: 'noite',
+    title: '🌙 Rotina da Noite',
+    tasks: [
+      { title: 'Lavar louça do jantar', owner: 'Gus', priority: 'Medium', emoji: '🍽️', svgKey: 'dishes' },
+      { title: 'Guardar roupas espalhadas', owner: 'Shared', priority: 'Low', emoji: '🧥', svgKey: 'wardrobe' },
+      { title: 'Cuidar do Bruce antes de dormir', owner: 'Shared', priority: 'High', emoji: '🐶', svgKey: 'bruce' }
+    ]
+  },
+  {
+    id: 'viagem',
+    title: '✈️ Checklist de Viagem',
+    tasks: [
+      { title: 'Separar documentos e reservas', owner: 'Gus', priority: 'High', emoji: '📋', svgKey: 'forms' },
+      { title: 'Arrumar malas e necessaire', owner: 'Isa', priority: 'High', emoji: '🧥', svgKey: 'wardrobe' },
+      { title: 'Carregadores, fones e remédios', owner: 'Shared', priority: 'Medium', emoji: '🔌', svgKey: null },
+      { title: 'Combinar cuidados com o Bruce', owner: 'Shared', priority: 'High', emoji: '🐶', svgKey: 'bruce' }
+    ]
+  }
+];
 
 // ============================================================================
 // DOM REFERENCES
@@ -267,7 +319,36 @@ const el = {
   setupSecretKey: document.getElementById('setupSecretKey'),
   setupDbUrl: document.getElementById('setupDbUrl'),
   setupApiKey: document.getElementById('setupApiKey'),
-  setupProjectId: document.getElementById('setupProjectId')
+  setupProjectId: document.getElementById('setupProjectId'),
+
+  // Focus Timer, Streak, Global FAB, Quick-Add Modal & Routines Modal
+  btnToggleFocusTimer: document.getElementById('btnToggleFocusTimer'),
+  headerFocusBadge: document.getElementById('headerFocusBadge'),
+  dashboardStreakBadge: document.getElementById('dashboardStreakBadge'),
+  streakDaysCount: document.getElementById('streakDaysCount'),
+  btnOpenRoutinesModal: document.getElementById('btnOpenRoutinesModal'),
+  btnFabAddTask: document.getElementById('btnFabAddTask'),
+  focusTimerWidget: document.getElementById('focusTimerWidget'),
+  btnCloseFocusWidget: document.getElementById('btnCloseFocusWidget'),
+  focusTaskLabel: document.getElementById('focusTaskLabel'),
+  focusTimeDisplay: document.getElementById('focusTimeDisplay'),
+  btnFocusStartPause: document.getElementById('btnFocusStartPause'),
+  btnFocusReset: document.getElementById('btnFocusReset'),
+  btnFocusCompleteTask: document.getElementById('btnFocusCompleteTask'),
+  quickTaskModal: document.getElementById('quickTaskModal'),
+  btnCloseQuickTaskModal: document.getElementById('btnCloseQuickTaskModal'),
+  btnCancelQuickTask: document.getElementById('btnCancelQuickTask'),
+  btnSaveQuickTask: document.getElementById('btnSaveQuickTask'),
+  quickTaskModalForm: document.getElementById('quickTaskModalForm'),
+  inputModalTaskTitle: document.getElementById('inputModalTaskTitle'),
+  selectModalTaskList: document.getElementById('selectModalTaskList'),
+  selectModalTaskPriority: document.getElementById('selectModalTaskPriority'),
+  selectModalTaskRecurrence: document.getElementById('selectModalTaskRecurrence'),
+  inputModalTaskDeadline: document.getElementById('inputModalTaskDeadline'),
+  routinesModal: document.getElementById('routinesModal'),
+  btnCloseRoutinesModal: document.getElementById('btnCloseRoutinesModal'),
+  btnConfirmCloseRoutines: document.getElementById('btnConfirmCloseRoutines'),
+  routinesListGrid: document.getElementById('routinesListGrid')
 };
 
 // ============================================================================
@@ -525,6 +606,16 @@ function showSetupScreen() {
   el.mainContent.style.display = 'none';
 }
 
+function isTypingInDynamicInput() {
+  const active = document.activeElement;
+  if (!active) return false;
+  const tag = (active.tagName || '').toLowerCase();
+  if (tag !== 'input' && tag !== 'textarea' && tag !== 'select') return false;
+  return Boolean(
+    active.closest('#coupleBoardView, #unifiedListView, #projectsListContainer, #calendarDayPanel')
+  );
+}
+
 function handleDataSync(freshData) {
   const normalized = db.normalizeData(freshData);
 
@@ -545,16 +636,41 @@ function handleDataSync(freshData) {
   }
 
   el.mainContent.style.display = 'flex';
-  renderApp();
+  if (isTypingInDynamicInput()) {
+    pendingSyncRender = true;
+  } else {
+    pendingSyncRender = false;
+    renderApp();
+  }
 }
 
 function saveDataAndRender(data) {
   checkRecurrenceAndClone(data);
+  pendingSyncRender = false;
   renderApp();
   db.updateDatabase(data).catch(err => {
     showToast('Erro ao salvar no Firebase! Verifique as regras de segurança.', 'error');
     console.error('Firebase write error:', err);
   });
+}
+
+function updateResponsiveHeaderChrome() {
+  const isMobile = window.innerWidth <= 860;
+  const inSpecificList = appState.activeTab === 'tasks' && appState.activeFilter === 'list';
+
+  if (el.btnHeaderBack && el.btnToggleMenu) {
+    if (isMobile && inSpecificList) {
+      el.btnHeaderBack.style.display = 'inline-flex';
+      el.btnToggleMenu.style.display = 'none';
+    } else {
+      el.btnHeaderBack.style.display = 'none';
+      el.btnToggleMenu.style.display = isMobile ? 'inline-flex' : 'none';
+    }
+  }
+
+  if (el.stickyTaskAddBar) {
+    el.stickyTaskAddBar.classList.toggle('active', isMobile && appState.activeTab === 'tasks' && appState.tasksViewMode === 'list');
+  }
 }
 
 // ============================================================================
@@ -577,18 +693,7 @@ function renderApp() {
   if (el.stickyTaskAddBar) el.stickyTaskAddBar.classList.remove('active');
 
   // Mobile Context Header Back/Menu Logic
-  const isMobile = window.innerWidth <= 860;
-  const inSpecificList = appState.activeTab === 'tasks' && appState.activeFilter === 'list';
-
-  if (el.btnHeaderBack && el.btnToggleMenu) {
-    if (isMobile && inSpecificList) {
-      el.btnHeaderBack.style.display = 'inline-flex';
-      el.btnToggleMenu.style.display = 'none';
-    } else {
-      el.btnHeaderBack.style.display = 'none';
-      el.btnToggleMenu.style.display = isMobile ? 'inline-flex' : 'none';
-    }
-  }
+  updateResponsiveHeaderChrome();
 
   // Update Sidebar Tab Active State
   document.querySelectorAll('.sidebar .nav-item[data-nav-tab]').forEach(link => {
@@ -732,6 +837,34 @@ function renderSidebar() {
 // VIEW 0: DASHBOARD (RESUMO DO DIA)
 // ============================================================================
 
+function computeCoupleStreak(tasks) {
+  const daysSet = new Set();
+  tasks.forEach(t => {
+    if (t.completed && t.completedAt) {
+      const d = new Date(t.completedAt);
+      if (!isNaN(d.getTime())) {
+        daysSet.add(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`);
+      }
+    }
+  });
+  if (daysSet.size === 0) return 0;
+
+  let streak = 0;
+  const cursor = new Date();
+  // Start checking today; if none completed today yet, allow streak continuing from yesterday
+  const todayKey = `${cursor.getFullYear()}-${cursor.getMonth()}-${cursor.getDate()}`;
+  if (!daysSet.has(todayKey)) {
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  while (true) {
+    const k = `${cursor.getFullYear()}-${cursor.getMonth()}-${cursor.getDate()}`;
+    if (!daysSet.has(k)) break;
+    streak++;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
+}
+
 function renderDashboard() {
   const data = appState.dbData;
   const isGus = appState.currentUser === 'Gus';
@@ -742,6 +875,17 @@ function renderDashboard() {
   const totalCount = allTasks.length;
   const doneCount = allCompleted.length;
   const pct = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
+
+  // Couple Streak Badge
+  const streak = computeCoupleStreak(allTasks);
+  if (el.dashboardStreakBadge && el.streakDaysCount) {
+    if (streak > 0) {
+      el.dashboardStreakBadge.style.display = 'inline-flex';
+      el.dashboardStreakBadge.innerHTML = `🔥 <strong id="streakDaysCount">${streak}</strong> ${streak === 1 ? 'dia' : 'dias'}`;
+    } else {
+      el.dashboardStreakBadge.style.display = 'none';
+    }
+  }
 
   // Overall progress bar & motivation
   el.dashboardMotivation.textContent = getMotivationMessage(doneCount, totalCount);
@@ -1207,15 +1351,20 @@ function renderCoupleBoard(filteredTasks, scopeTasks) {
 }
 
 function bindCoupleBoardListeners() {
-  // Toggle inline add forms
+  // Toggle inline add forms without destroying DOM (preserves mobile keyboard focus!)
   el.coupleBoardView.querySelectorAll('[data-toggle-inline]').forEach(btn => {
     btn.addEventListener('click', () => {
       const owner = btn.getAttribute('data-toggle-inline');
-      appState.openInlineForms[owner] = !appState.openInlineForms[owner];
-      renderTasks();
-      if (appState.openInlineForms[owner]) {
-        const inp = el.coupleBoardView.querySelector(`[data-inline-input="${owner}"]`);
-        if (inp) setTimeout(() => inp.focus(), 30);
+      const nextOpen = !appState.openInlineForms[owner];
+      appState.openInlineForms[owner] = nextOpen;
+      const form = el.coupleBoardView.querySelector(`[data-inline-form="${owner}"]`);
+      if (form) {
+        form.classList.toggle('hidden', !nextOpen);
+        btn.textContent = nextOpen ? '−' : '+';
+        if (nextOpen) {
+          const inp = form.querySelector(`[data-inline-input="${owner}"]`);
+          if (inp) inp.focus();
+        }
       }
     });
   });
@@ -1247,6 +1396,7 @@ function bindCoupleBoardListeners() {
       }
 
       const autoSvg = detectSvgKeyFromTitle(title);
+      appState.openInlineForms[owner] = false;
       createTask({
         title,
         owner,
@@ -1256,8 +1406,6 @@ function bindCoupleBoardListeners() {
         emoji: appState.selectedInlineEmojis[owner] || '✨',
         svgKey: autoSvg
       });
-
-      appState.openInlineForms[owner] = false;
     });
   });
 
@@ -1396,6 +1544,15 @@ function renderTaskItemHTML(task, isBoardMode) {
 
     expandedHtml = `
       <div class="task-expanded-panel">
+        <div class="expanded-quick-actions">
+          <div class="expanded-owner-pills" role="group" aria-label="Trocar responsável rapidamente">
+            <button type="button" class="owner-quick-btn gus ${task.owner === 'Gus' ? 'active' : ''}" data-quick-owner="Gus">👦🏻 Gustavo</button>
+            <button type="button" class="owner-quick-btn isa ${task.owner === 'Isa' ? 'active' : ''}" data-quick-owner="Isa">👩🏻 Isabella</button>
+            <button type="button" class="owner-quick-btn shared ${!task.owner || task.owner === 'Shared' ? 'active' : ''}" data-quick-owner="Shared">💛 Ambos</button>
+          </div>
+          <button type="button" class="btn-focus-task" data-focus-task-id="${task.id}">🍅 Focar</button>
+        </div>
+
         <div class="expanded-title-edit-row">
           <input type="text" class="input-edit-task-title" value="${escapeHTML(task.title)}" aria-label="Editar título da tarefa">
           <button type="button" class="inline-sub-btn btn-save-task-title">Salvar título</button>
@@ -1550,6 +1707,22 @@ function bindTaskItemListeners(container) {
   container.querySelectorAll('.task-expanded-panel').forEach(panel => {
     panel.addEventListener('click', e => e.stopPropagation());
     const taskId = panel.closest('.task-item').getAttribute('data-task-id');
+
+    // 1-Tap Owner Quick Switch (Mobile-friendly alternative to drag & drop)
+    panel.querySelectorAll('[data-quick-owner]').forEach(ob => {
+      ob.addEventListener('click', () => {
+        reassignTaskOwner(taskId, ob.getAttribute('data-quick-owner'));
+      });
+    });
+
+    // Launch Focus Timer for this specific task
+    const focusBtn = panel.querySelector('.btn-focus-task');
+    if (focusBtn) {
+      focusBtn.addEventListener('click', () => {
+        const task = appState.dbData.tasks.find(x => x.id === taskId);
+        if (task) openFocusTimerForTask(task);
+      });
+    }
 
     // Inline Title Save
     const titleInput = panel.querySelector('.input-edit-task-title');
@@ -2304,7 +2477,7 @@ function renderHistory() {
       add_task: '➕', complete_task: '✓', uncomplete_task: '↩️', delete_task: '🗑️',
       add_list: '📁', delete_list: '✕', add_note: '💌', delete_note: '🗑️',
       add_wish: '🎁', delete_wish: '🗑️', add_project: '🚀', delete_project: '🗑️',
-      undo_action: '↩️'
+      undo_action: '↩️', nudge: '💌'
     };
     const icon = iconMap[log.action] || '✏️';
     const time = new Date(log.timestamp).toLocaleString('pt-BR', {
@@ -2325,6 +2498,7 @@ function renderHistory() {
     else if (log.action === 'add_project') text = `criou a meta <strong>"${escapeHTML(log.projectName)}"</strong>`;
     else if (log.action === 'delete_project') text = `removeu a meta <strong>"${escapeHTML(log.projectName)}"</strong>`;
     else if (log.action === 'undo_action') text = `desfez uma ação de <em>${ownerDisplayName(log.undoUser)}</em>`;
+    else if (log.action === 'nudge') text = `enviou carinho: <strong>"${escapeHTML(log.nudgeText)}"</strong>`;
 
     const reactions = log.reactions || {};
     const reactionsHtml = emojis.map(emoji => {
@@ -3384,7 +3558,198 @@ function setupEventListeners() {
     });
   });
 
-  // Global Keyboard Shortcuts: '/' to search tasks, 'Escape' to close modals/drawers
+  // Quick 1-Tap Couple Nudges (Carinho) on Dashboard
+  document.querySelectorAll('.nudge-pill[data-nudge]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (!appState.dbData) return;
+      const text = btn.getAttribute('data-nudge');
+      db.logAction(appState.dbData, 'nudge', { nudgeText: text });
+      playSound('check');
+      saveDataAndRender(appState.dbData);
+      const partner = appState.currentUser === 'Gus' ? 'Isabella' : 'Gustavo';
+      showToast(`Carinho enviado para ${partner}: ${text}`);
+    });
+  });
+
+  // Global Quick-Add FAB & Modal
+  const openQuickTaskModal = () => {
+    if (!appState.dbData) return;
+    el.selectModalTaskList.innerHTML = appState.dbData.lists
+      .map(l => `<option value="${l.id}" ${l.id === getDefaultTargetListId() ? 'selected' : ''}>${escapeHTML(l.name)}</option>`)
+      .join('');
+    el.inputModalTaskTitle.value = '';
+    el.inputModalTaskDeadline.value = '';
+    el.selectModalTaskPriority.value = 'Medium';
+    el.selectModalTaskRecurrence.value = 'none';
+
+    const preferredOwner = appState.ownerFilter !== 'all' ? appState.ownerFilter : 'Shared';
+    const ownerRadio = document.querySelector(`input[name="modal_task_owner"][value="${preferredOwner}"]`);
+    if (ownerRadio) ownerRadio.checked = true;
+
+    el.quickTaskModal.classList.add('open');
+    el.inputModalTaskTitle.focus();
+  };
+
+  const closeQuickTaskModal = () => el.quickTaskModal.classList.remove('open');
+
+  const submitQuickTaskModal = () => {
+    const title = el.inputModalTaskTitle.value.trim();
+    if (!title) {
+      showToast('Digite o nome da tarefa primeiro ✍️');
+      el.inputModalTaskTitle.focus();
+      return;
+    }
+    const ownerChecked = document.querySelector('input[name="modal_task_owner"]:checked');
+    const deadlineVal = el.inputModalTaskDeadline.value;
+    createTask({
+      title,
+      owner: ownerChecked ? ownerChecked.value : 'Shared',
+      listId: el.selectModalTaskList.value,
+      priority: el.selectModalTaskPriority.value,
+      recurrence: el.selectModalTaskRecurrence.value,
+      deadline: deadlineVal ? new Date(deadlineVal).toISOString() : null
+    });
+    closeQuickTaskModal();
+  };
+
+  if (el.btnFabAddTask) el.btnFabAddTask.addEventListener('click', openQuickTaskModal);
+  if (el.btnCloseQuickTaskModal) el.btnCloseQuickTaskModal.addEventListener('click', closeQuickTaskModal);
+  if (el.btnCancelQuickTask) el.btnCancelQuickTask.addEventListener('click', closeQuickTaskModal);
+  if (el.btnSaveQuickTask) el.btnSaveQuickTask.addEventListener('click', submitQuickTaskModal);
+  if (el.quickTaskModalForm) {
+    el.quickTaskModalForm.addEventListener('submit', e => {
+      e.preventDefault();
+      submitQuickTaskModal();
+    });
+  }
+
+  document.querySelectorAll('[data-modal-date]').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const mode = chip.getAttribute('data-modal-date');
+      if (mode === 'clear') {
+        el.inputModalTaskDeadline.value = '';
+        return;
+      }
+      const d = new Date();
+      if (mode === 'today') {
+        d.setHours(18, 0, 0, 0);
+      } else if (mode === 'tomorrow') {
+        d.setDate(d.getDate() + 1);
+        d.setHours(12, 0, 0, 0);
+      } else if (mode === 'weekend') {
+        const daysUntilSat = (6 - d.getDay() + 7) % 7 || 7;
+        d.setDate(d.getDate() + daysUntilSat);
+        d.setHours(10, 0, 0, 0);
+      }
+      el.inputModalTaskDeadline.value = toLocalDatetimeInputValue(d.toISOString());
+    });
+  });
+
+  // Couple Quick Routines Modal
+  const openRoutinesModal = () => {
+    if (!appState.dbData || !el.routinesListGrid) return;
+    el.routinesListGrid.innerHTML = COUPLE_ROUTINES.map(pack => `
+      <button type="button" class="routine-pack-card" data-routine-id="${pack.id}">
+        <span class="routine-pack-title">${pack.title}</span>
+        <ul class="routine-pack-items">
+          ${pack.tasks.map(t => `<li>• ${escapeHTML(t.title)} (${ownerShortName(t.owner)})</li>`).join('')}
+        </ul>
+      </button>
+    `).join('');
+
+    el.routinesListGrid.querySelectorAll('[data-routine-id]').forEach(card => {
+      card.addEventListener('click', () => {
+        const pack = COUPLE_ROUTINES.find(p => p.id === card.getAttribute('data-routine-id'));
+        if (!pack) return;
+        const targetListId = getDefaultTargetListId();
+        const nowIso = new Date().toISOString();
+        pack.tasks.forEach((pt, idx) => {
+          appState.dbData.tasks.push({
+            id: `t-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 5)}`,
+            listId: targetListId,
+            projectId: null,
+            title: pt.title,
+            completed: false,
+            completedBy: null,
+            completedAt: null,
+            createdBy: appState.currentUser,
+            createdAt: nowIso,
+            deadline: null,
+            owner: pt.owner,
+            priority: pt.priority,
+            recurrence: 'none',
+            emoji: pt.emoji,
+            svgKey: pt.svgKey,
+            subtasks: [],
+            comments: []
+          });
+        });
+        db.logAction(appState.dbData, 'add_task', {
+          taskTitle: `Rotina "${pack.title}" (${pack.tasks.length} tarefas)`,
+          listName: 'Rotinas Rápidas'
+        });
+        el.routinesModal.classList.remove('open');
+        playSound('celebrate');
+        saveDataAndRender(appState.dbData);
+        showToast(`${pack.tasks.length} tarefas da rotina adicionadas! ⚡`);
+      });
+    });
+
+    el.routinesModal.classList.add('open');
+  };
+
+  const closeRoutinesModal = () => el.routinesModal.classList.remove('open');
+  if (el.btnOpenRoutinesModal) el.btnOpenRoutinesModal.addEventListener('click', openRoutinesModal);
+  if (el.btnCloseRoutinesModal) el.btnCloseRoutinesModal.addEventListener('click', closeRoutinesModal);
+  if (el.btnConfirmCloseRoutines) el.btnConfirmCloseRoutines.addEventListener('click', closeRoutinesModal);
+
+  // Focus Timer (Pomodoro) Controls
+  if (el.btnToggleFocusTimer) {
+    el.btnToggleFocusTimer.addEventListener('click', () => {
+      const visible = el.focusTimerWidget.style.display === 'flex';
+      el.focusTimerWidget.style.display = visible ? 'none' : 'flex';
+      renderFocusTimerUI();
+    });
+  }
+  if (el.btnCloseFocusWidget) {
+    el.btnCloseFocusWidget.addEventListener('click', () => {
+      el.focusTimerWidget.style.display = 'none';
+    });
+  }
+  if (el.btnFocusStartPause) {
+    el.btnFocusStartPause.addEventListener('click', toggleFocusTimer);
+  }
+  if (el.btnFocusReset) {
+    el.btnFocusReset.addEventListener('click', () => {
+      stopFocusTimer();
+      focusTimer.remainingSec = focusTimer.durationSec;
+      renderFocusTimerUI();
+    });
+  }
+  if (el.btnFocusCompleteTask) {
+    el.btnFocusCompleteTask.addEventListener('click', () => {
+      if (focusTimer.taskId) {
+        toggleTaskCompletion(focusTimer.taskId, true);
+        stopFocusTimer();
+        focusTimer.taskId = null;
+        focusTimer.taskTitle = null;
+        el.focusTimerWidget.style.display = 'none';
+        renderFocusTimerUI();
+      }
+    });
+  }
+  document.querySelectorAll('[data-focus-min]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const mins = parseInt(btn.getAttribute('data-focus-min'), 10) || 25;
+      stopFocusTimer();
+      focusTimer.durationSec = mins * 60;
+      focusTimer.remainingSec = mins * 60;
+      document.querySelectorAll('[data-focus-min]').forEach(b => b.classList.toggle('active', b === btn));
+      renderFocusTimerUI();
+    });
+  });
+
+  // Global Keyboard Shortcuts: '/' search, 'n' quick new task, 'Escape' close modals/drawers
   document.addEventListener('keydown', e => {
     const tag = (e.target.tagName || '').toLowerCase();
     const typing = tag === 'input' || tag === 'textarea' || tag === 'select';
@@ -3394,21 +3759,128 @@ function setupEventListeners() {
       return;
     }
 
-    if (e.key === '/' && !typing) {
+    if (typing) return;
+
+    if (e.key === '/') {
       e.preventDefault();
       if (appState.activeTab !== 'tasks') {
         appState.activeTab = 'tasks';
         renderApp();
       }
       el.inputSearchTasks.focus();
+    } else if (e.key === 'n' || e.key === 'N') {
+      e.preventDefault();
+      openQuickTaskModal();
     }
   });
 
-  // Re-evaluate mobile header layout on resize
+  // Mobile Virtual Keyboard Ergonomics:
+  // 1) Never destroy inputs on virtual-keyboard vertical resize; only update header chrome when width crosses 860px
   window.addEventListener('resize', () => {
-    if (appState.dbData) renderApp();
+    const nowIsMobile = window.innerWidth <= 860;
+    if (nowIsMobile !== lastIsMobile) {
+      lastIsMobile = nowIsMobile;
+      if (appState.dbData) updateResponsiveHeaderChrome();
+    }
   });
+
+  // 2) Hide mobile bottom nav / FAB while typing so inputs stay visible and flush deferred remote syncs on blur
+  let focusOutTimer = null;
+  const isTextInputEl = node => {
+    if (!node) return false;
+    const tag = (node.tagName || '').toLowerCase();
+    return tag === 'textarea' || (tag === 'input' && !['checkbox', 'radio', 'button', 'submit', 'file'].includes(node.type));
+  };
+
+  document.addEventListener('focus', e => {
+    if (isTextInputEl(e.target) && window.innerWidth <= 860) {
+      clearTimeout(focusOutTimer);
+      document.body.classList.add('keyboard-open');
+    }
+  }, true);
+
+  document.addEventListener('blur', () => {
+    clearTimeout(focusOutTimer);
+    focusOutTimer = setTimeout(() => {
+      if (!isTextInputEl(document.activeElement)) {
+        document.body.classList.remove('keyboard-open');
+        if (pendingSyncRender && appState.dbData) {
+          pendingSyncRender = false;
+          renderApp();
+        }
+      }
+    }, 150);
+  }, true);
+}
+
+// ============================================================================
+// POMODORO FOCUS TIMER HELPERS
+// ============================================================================
+
+function formatSeconds(sec) {
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+function renderFocusTimerUI() {
+  if (!el.focusTimeDisplay) return;
+  const formatted = formatSeconds(focusTimer.remainingSec);
+  el.focusTimeDisplay.textContent = formatted;
+  el.focusTaskLabel.textContent = focusTimer.taskTitle ? `Focando: ${focusTimer.taskTitle}` : 'Foco livre do casal ✨';
+  el.btnFocusStartPause.textContent = focusTimer.running ? '⏸ Pausar' : '▶ Iniciar';
+  el.btnFocusCompleteTask.style.display = focusTimer.taskId ? 'inline-flex' : 'none';
+  if (el.headerFocusBadge) {
+    el.headerFocusBadge.textContent = focusTimer.running ? formatted : 'Foco';
+  }
+}
+
+function stopFocusTimer() {
+  if (focusTimer.intervalId) {
+    clearInterval(focusTimer.intervalId);
+    focusTimer.intervalId = null;
+  }
+  focusTimer.running = false;
+}
+
+function toggleFocusTimer() {
+  if (focusTimer.running) {
+    stopFocusTimer();
+    renderFocusTimerUI();
+    return;
+  }
+  if (focusTimer.remainingSec <= 0) {
+    focusTimer.remainingSec = focusTimer.durationSec;
+  }
+  focusTimer.running = true;
+  playSound('add');
+  renderFocusTimerUI();
+
+  focusTimer.intervalId = setInterval(() => {
+    focusTimer.remainingSec = Math.max(0, focusTimer.remainingSec - 1);
+    renderFocusTimerUI();
+    if (focusTimer.remainingSec === 0) {
+      stopFocusTimer();
+      playSound('celebrate');
+      launchConfetti(85);
+      showToast('🍅 Tempo de foco concluído! Parabéns! 🎉');
+      notifications.showNotification('🍅 Modo Foco Concluído!', focusTimer.taskTitle || 'Hora de uma pausa merecida!');
+      renderFocusTimerUI();
+    }
+  }, 1000);
+}
+
+function openFocusTimerForTask(task) {
+  focusTimer.taskId = task.id;
+  focusTimer.taskTitle = task.title;
+  if (!focusTimer.running) {
+    focusTimer.remainingSec = focusTimer.durationSec;
+  }
+  el.focusTimerWidget.style.display = 'flex';
+  renderFocusTimerUI();
+  showToast(`🍅 Modo Foco pronto para "${task.title}"`);
 }
 
 // Start App
 init();
+

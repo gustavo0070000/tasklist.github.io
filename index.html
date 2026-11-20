@@ -181,6 +181,12 @@
         </div>
 
         <div class="header-right">
+          <!-- Focus Timer (Pomodoro) -->
+          <button id="btnToggleFocusTimer" class="util-btn" title="Abrir Timer de Foco (Pomodoro)" aria-label="Abrir modo foco">
+            <span>🍅</span>
+            <span id="headerFocusBadge" class="util-label">Foco</span>
+          </button>
+
           <!-- Sound Toggle -->
           <button id="btnToggleSound" class="util-btn" title="Ativar ou desativar efeitos sonoros" aria-label="Alternar som">
             <span id="soundIcon">🔊</span>
@@ -290,6 +296,7 @@
                 <div class="couple-legend-row">
                   <span id="dashboardProgressSub" class="hero-sub-status">Carregando tarefas...</span>
                   <div class="couple-legend-badges">
+                    <span id="dashboardStreakBadge" class="legend-chip legend-streak" style="display: none;">🔥 <strong id="streakDaysCount">0</strong> dias</span>
                     <span class="legend-chip legend-gus"><span class="legend-dot gus"></span> Gustavo: <strong id="legendGusDone">0</strong></span>
                     <span class="legend-chip legend-isa"><span class="legend-dot isa"></span> Isabella: <strong id="legendIsaDone">0</strong></span>
                   </div>
@@ -311,6 +318,17 @@
           <!-- Quick Couple Breakdown Cards (Click to filter Tasks by person) -->
           <div id="dashboardCoupleCards" class="couple-summary-grid">
             <!-- Populated dynamically: Gustavo (Mint), Isabella (Peach), Ambos (Butter Yellow) -->
+          </div>
+
+          <!-- Quick 1-Tap Couple Nudges (Carinho & Lembretes Fofos) -->
+          <div class="nudge-strip" aria-label="Mandar carinho rápido">
+            <span class="nudge-strip-label">💌 Mandar carinho:</span>
+            <div class="nudge-pills">
+              <button type="button" class="nudge-pill" data-nudge="❤️ Te amo muito!">❤️ Te amo!</button>
+              <button type="button" class="nudge-pill" data-nudge="👏 Você arrasou hoje!">👏 Arrasou!</button>
+              <button type="button" class="nudge-pill" data-nudge="☕ Bora um cafezinho?">☕ Cafezinho?</button>
+              <button type="button" class="nudge-pill" data-nudge="🍦 Hora do sorvete com o Bruce!">🍦 Sorvete!</button>
+            </div>
           </div>
 
           <!-- Latest Mural Note Preview -->
@@ -376,6 +394,8 @@
               </div>
 
               <div class="toolbar-controls-right">
+                <button type="button" id="btnOpenRoutinesModal" class="btn-tactile btn-surface-sm" title="Adicionar pacotes prontos de rotinas do casal">⚡ Rotinas</button>
+
                 <select id="selectSortTasks" class="tactile-select" aria-label="Ordenar tarefas">
                   <option value="newest">Mais recentes</option>
                   <option value="deadline">Prazo próximo</option>
@@ -1045,6 +1065,121 @@
       <div class="modal-footer modal-footer-between">
         <button id="btnResetApp" class="btn-tactile btn-danger-outline">Desconectar Banco</button>
         <button id="btnConfirmCloseSettings" class="btn-tactile btn-primary">Fechar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Floating Quick-Add Action Button (Works from any tab!) -->
+  <button type="button" id="btnFabAddTask" class="fab-add-task" title="Nova Tarefa Rápida (tecla N)" aria-label="Nova Tarefa Rápida">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+  </button>
+
+  <!-- Floating Focus Timer (Pomodoro Widget) -->
+  <aside id="focusTimerWidget" class="focus-timer-widget" aria-label="Modo Foco Pomodoro" style="display: none;">
+    <div class="focus-header">
+      <span class="focus-title">🍅 Modo Foco</span>
+      <button type="button" id="btnCloseFocusWidget" class="focus-close-btn" aria-label="Fechar Modo Foco">✕</button>
+    </div>
+    <p id="focusTaskLabel" class="focus-task-label">Foco livre do casal ✨</p>
+    <div id="focusTimeDisplay" class="focus-time-display">25:00</div>
+    <div class="focus-presets">
+      <button type="button" class="focus-preset-btn" data-focus-min="15">15m</button>
+      <button type="button" class="focus-preset-btn active" data-focus-min="25">25m</button>
+      <button type="button" class="focus-preset-btn" data-focus-min="45">45m</button>
+    </div>
+    <div class="focus-controls">
+      <button type="button" id="btnFocusStartPause" class="btn-tactile btn-primary" style="flex: 1;">▶ Iniciar</button>
+      <button type="button" id="btnFocusReset" class="btn-tactile btn-surface-sm" title="Reiniciar">↺</button>
+      <button type="button" id="btnFocusCompleteTask" class="btn-tactile btn-emerald" style="display: none;" title="Concluir tarefa em foco">✓</button>
+    </div>
+  </aside>
+
+  <!-- Modal: Nova Tarefa Rápida (Global FAB) -->
+  <div id="quickTaskModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="quickTaskModalTitle">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="quickTaskModalTitle" class="modal-title">⚡ Nova Tarefa Rápida</h3>
+        <button id="btnCloseQuickTaskModal" class="icon-btn" aria-label="Fechar">✕</button>
+      </div>
+      <div class="modal-content">
+        <form id="quickTaskModalForm" class="modal-form" onsubmit="return false;">
+          <div class="form-group">
+            <label class="form-label" for="inputModalTaskTitle">O que precisa ser feito?</label>
+            <input type="text" id="inputModalTaskTitle" class="form-control" placeholder="Ex: Comprar café, lavar louça, passear com Bruce..." required autocomplete="off">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Responsável</label>
+            <div class="radio-group">
+              <label class="radio-card radio-gus"><input type="radio" name="modal_task_owner" value="Gus"><span>👦🏻 Gustavo</span></label>
+              <label class="radio-card radio-isa"><input type="radio" name="modal_task_owner" value="Isa"><span>👩🏻 Isabella</span></label>
+              <label class="radio-card radio-shared"><input type="radio" name="modal_task_owner" value="Shared" checked><span>💛 Ambos</span></label>
+            </div>
+          </div>
+
+          <div class="form-row-2">
+            <div class="form-group">
+              <label class="form-label" for="selectModalTaskList">Lista</label>
+              <select id="selectModalTaskList" class="form-control"></select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="selectModalTaskPriority">Prioridade</label>
+              <select id="selectModalTaskPriority" class="form-control">
+                <option value="Medium">🟡 Média</option>
+                <option value="High">🔴 Alta</option>
+                <option value="Low">🟢 Baixa</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row-2">
+            <div class="form-group">
+              <label class="form-label" for="selectModalTaskRecurrence">Repetição</label>
+              <select id="selectModalTaskRecurrence" class="form-control">
+                <option value="none">Não repetir</option>
+                <option value="daily">Diariamente</option>
+                <option value="weekly">Semanalmente</option>
+                <option value="monthly">Mensalmente</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="inputModalTaskDeadline">Prazo (Opcional)</label>
+              <input type="datetime-local" id="inputModalTaskDeadline" class="form-control">
+            </div>
+          </div>
+
+          <div class="quick-date-row">
+            <button type="button" class="mini-date-chip" data-modal-date="today">Hoje 18h</button>
+            <button type="button" class="mini-date-chip" data-modal-date="tomorrow">Amanhã 12h</button>
+            <button type="button" class="mini-date-chip" data-modal-date="weekend">Sábado 10h</button>
+            <button type="button" class="mini-date-chip subtle" data-modal-date="clear">Sem prazo</button>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button id="btnCancelQuickTask" class="btn-tactile btn-surface-sm">Cancelar</button>
+        <button id="btnSaveQuickTask" class="btn-tactile btn-primary">Adicionar Tarefa</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Pacotes de Rotinas Rápidas do Casal -->
+  <div id="routinesModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="routinesModalTitle">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3 id="routinesModalTitle" class="modal-title">⚡ Rotinas Rápidas do Casal</h3>
+        <button id="btnCloseRoutinesModal" class="icon-btn" aria-label="Fechar">✕</button>
+      </div>
+      <div class="modal-content">
+        <p class="confirm-desc" style="margin-bottom: 1rem;">
+          Toque em um pacote para adicionar todas as tarefas de uma vez na lista atual:
+        </p>
+        <div id="routinesListGrid" class="routines-grid">
+          <!-- Populated dynamically -->
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="btnConfirmCloseRoutines" class="btn-tactile btn-surface-sm">Fechar</button>
       </div>
     </div>
   </div>

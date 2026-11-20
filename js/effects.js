@@ -283,5 +283,7 @@ export function confirmAction({
   });
 }
 
-// Bind resize automatically
-window.addEventListener('resize', resizeConfettiCanvas);
+// Bind resize automatically only while confetti is animating
+window.addEventListener('resize', () => {
+  if (confettiAnimId) resizeConfettiCanvas();
+});
