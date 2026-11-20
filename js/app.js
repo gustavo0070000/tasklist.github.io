@@ -1,117 +1,185 @@
 import * as db from './firebase-db.js';
 import * as notifications from './notifications.js';
 import * as ifttt from './ifttt-webhook.js';
+import {
+  GUS_AVATAR_SVG,
+  ISA_AVATAR_SVG,
+  AMBOS_AVATAR_SVG,
+  EMOJI_PRESETS,
+  ALL_EMOJIS,
+  detectSvgKeyFromTitle,
+  renderTaskIcon
+} from './illustrations.js';
+import {
+  isSoundEnabled,
+  setSoundEnabled,
+  playSound,
+  launchConfetti,
+  resizeConfettiCanvas,
+  showToast,
+  initConfirmModal,
+  confirmAction
+} from './effects.js';
 
-// Application State
-let appState = {
+// ============================================================================
+// APPLICATION STATE
+// ============================================================================
+
+const appState = {
   dbData: null,
-  activeListId: 'all', // 'all', 'today', or specific list ID
-  activeFilter: 'all',  // 'all', 'today'
-  activeTab: 'dashboard', // default to Dashboard / Resumo do Dia
-  currentUser: 'Gus',
+  activeListId: 'all',          // 'all' | 'today' | specific list ID
+  activeFilter: 'all',          // 'all' | 'today' | 'date' | 'list'
+  activeTab: 'dashboard',       // 'dashboard' | 'tasks' | 'calendar' | 'projects' | 'notes' | 'wishlist' | 'stats'
+  currentUser: 'Gus',           // 'Gus' | 'Isa'
   secretKey: '',
-  currentMonth: new Date(), // For calendar month view
-  expandedTaskId: null,     // Active expanded task card
-  quickFilter: 'none'       // 'none', 'mine', 'urgent'
+  syncStatus: 'connecting',     // 'online' | 'reconnecting' | 'local' | 'offline'
+  currentMonth: new Date(),
+  selectedDate: null,           // Calendar -> Tasks date filter
+  selectedCalendarDay: new Date(),
+  expandedTaskId: null,
+  quickFilter: 'none',          // 'none' | 'mine' | 'urgent'
+  ownerFilter: 'all',           // 'all' | 'Gus' | 'Isa' | 'Shared'
+  statusFilter: 'all',          // 'all' | 'pending' | 'done'
+  searchQuery: '',
+  sortBy: 'newest',             // 'newest' | 'deadline' | 'priority' | 'alpha'
+  tasksViewMode: localStorage.getItem('tasklist_view_mode') || 'board', // 'board' | 'list'
+  openInlineForms: { Gus: false, Isa: false, Shared: false },
+  selectedInlineEmojis: { Gus: '📋', Isa: '📚', Shared: '💛' },
+  selectedQuickAddEmoji: '✨',
+  draggedTaskId: null
 };
 
-// DOM Elements
-const elements = {
-  appContainer: document.querySelector('.app-container'),
+let unsubscribeData = null;
+let unsubscribeConn = null;
+
+// ============================================================================
+// DOM REFERENCES
+// ============================================================================
+
+const el = {
+  // Shell & Sidebar
   sidebar: document.getElementById('sidebar'),
   sidebarOverlay: document.getElementById('sidebarOverlay'),
   btnToggleMenu: document.getElementById('btnToggleMenu'),
+  btnCloseSidebarMobile: document.getElementById('btnCloseSidebarMobile'),
+  btnHeaderBack: document.getElementById('btnHeaderBack'),
+  listsContainer: document.getElementById('listsContainer'),
+  badgeCountAll: document.getElementById('badgeCountAll'),
+  currentUserBadge: document.getElementById('currentUserBadge'),
   btnOpenSettings: document.getElementById('btnOpenSettings'),
-  btnToggleHistory: document.getElementById('btnToggleHistory'),
-  btnCloseHistory: document.getElementById('btnCloseHistory'),
-  activityDrawer: document.getElementById('activityDrawer'),
-  drawerOverlay: document.getElementById('drawerOverlay'),
-  historyList: document.getElementById('historyList'),
-  
-  // Header
+  btnOpenAddListModal: document.getElementById('btnOpenAddListModal'),
+
+  // Header Utilities
   activeListTitle: document.getElementById('activeListTitle'),
   activeListOwnerBadge: document.getElementById('activeListOwnerBadge'),
-  progressText: document.getElementById('progressText'),
-  progressBarFill: document.getElementById('progressBarFill'),
-  
-  // Sidebar Tabs
-  tabDashboard: document.getElementById('tabDashboard'),
-  tabTasks: document.getElementById('tabTasks'),
-  tabCalendar: document.getElementById('tabCalendar'),
-  tabProjects: document.getElementById('tabProjects'),
-  tabNotes: document.getElementById('tabNotes'),
-  tabWishlist: document.getElementById('tabWishlist'),
-  tabStats: document.getElementById('tabStats'),
-  
-  // Tab Views
+  syncStatusPill: document.getElementById('syncStatusPill'),
+  syncStatusText: document.getElementById('syncStatusText'),
+  btnToggleSound: document.getElementById('btnToggleSound'),
+  soundIcon: document.getElementById('soundIcon'),
+  btnToggleTheme: document.getElementById('btnToggleTheme'),
+  themeIcon: document.getElementById('themeIcon'),
+  themeLabel: document.getElementById('themeLabel'),
+  btnCopySummary: document.getElementById('btnCopySummary'),
+  btnToggleHistory: document.getElementById('btnToggleHistory'),
+
+  // Activity Drawer
+  activityDrawer: document.getElementById('activityDrawer'),
+  drawerOverlay: document.getElementById('drawerOverlay'),
+  btnCloseHistory: document.getElementById('btnCloseHistory'),
+  historyList: document.getElementById('historyList'),
+
+  // Mobile Bottom Nav
+  mobileBottomNav: document.getElementById('mobileBottomNav'),
+  bottomNavBadgeTasks: document.getElementById('bottomNavBadgeTasks'),
+  bottomNavBtnMore: document.getElementById('bottomNavBtnMore'),
+
+  // Main Container & Tab Views
+  mainContent: document.getElementById('mainContent'),
+  viewDashboard: document.getElementById('viewDashboard'),
   viewTasks: document.getElementById('viewTasks'),
   viewCalendar: document.getElementById('viewCalendar'),
   viewProjects: document.getElementById('viewProjects'),
   viewNotes: document.getElementById('viewNotes'),
   viewWishlist: document.getElementById('viewWishlist'),
   viewStats: document.getElementById('viewStats'),
-  
-  // Task Views & Quick Filters
-  mainContent: document.getElementById('mainContent'),
+
+  // Dashboard
+  dashboardUserGreeting: document.getElementById('dashboardUserGreeting'),
+  dashboardMotivation: document.getElementById('dashboardMotivation'),
+  dashboardOverallCounter: document.getElementById('dashboardOverallCounter'),
+  dashboardProgressBar: document.getElementById('dashboardProgressBar'),
+  dashboardProgressSub: document.getElementById('dashboardProgressSub'),
+  dashboardProgressCircle: document.getElementById('dashboardProgressCircle'),
+  svgRingGus: document.getElementById('svgRingGus'),
+  svgRingIsa: document.getElementById('svgRingIsa'),
+  legendGusDone: document.getElementById('legendGusDone'),
+  legendIsaDone: document.getElementById('legendIsaDone'),
+  dashboardCoupleCards: document.getElementById('dashboardCoupleCards'),
+  dashboardMuralPreviewContainer: document.getElementById('dashboardMuralPreviewContainer'),
+  dashboardMuralPreview: document.getElementById('dashboardMuralPreview'),
+  dashboardMuralAuthor: document.getElementById('dashboardMuralAuthor'),
+  dashboardMuralText: document.getElementById('dashboardMuralText'),
+  dashboardUrgentContainer: document.getElementById('dashboardUrgentContainer'),
+  dashboardUrgentList: document.getElementById('dashboardUrgentList'),
+  btnViewAllUrgent: document.getElementById('btnViewAllUrgent'),
+  dashboardListsGrid: document.getElementById('dashboardListsGrid'),
+  btnDashboardOpenAddList: document.getElementById('btnDashboardOpenAddList'),
+
+  // Tasks View
+  tasksMotivation: document.getElementById('tasksMotivation'),
+  progressText: document.getElementById('progressText'),
+  progressBarFill: document.getElementById('progressBarFill'),
+  inputSearchTasks: document.getElementById('inputSearchTasks'),
+  btnClearSearch: document.getElementById('btnClearSearch'),
+  selectSortTasks: document.getElementById('selectSortTasks'),
+  btnViewModeBoard: document.getElementById('btnViewModeBoard'),
+  btnViewModeList: document.getElementById('btnViewModeList'),
+  btnFilterMyTasks: document.getElementById('btnFilterMyTasks'),
+  btnFilterUrgentTasks: document.getElementById('btnFilterUrgentTasks'),
+  btnClearQuickFilters: document.getElementById('btnClearQuickFilters'),
+  activeDateBanner: document.getElementById('activeDateBanner'),
+  activeDateBannerText: document.getElementById('activeDateBannerText'),
+  btnClearDateFilter: document.getElementById('btnClearDateFilter'),
+  coupleBoardView: document.getElementById('coupleBoardView'),
+  unifiedListView: document.getElementById('unifiedListView'),
+  addTaskForm: document.getElementById('addTaskForm'),
+  btnQuickEmojiToggle: document.getElementById('btnQuickEmojiToggle'),
+  quickAddEmojiTray: document.getElementById('quickAddEmojiTray'),
+  inputTaskTitle: document.getElementById('inputTaskTitle'),
+  selectTaskOwner: document.getElementById('selectTaskOwner'),
+  selectTaskPriority: document.getElementById('selectTaskPriority'),
+  selectTaskRecurrence: document.getElementById('selectTaskRecurrence'),
+  inputTaskDeadline: document.getElementById('inputTaskDeadline'),
+  emptyStateView: document.getElementById('emptyStateView'),
+  todoSection: document.getElementById('todoSection'),
+  completedSection: document.getElementById('completedSection'),
   todoTaskList: document.getElementById('todoTaskList'),
   completedTaskList: document.getElementById('completedTaskList'),
   todoCount: document.getElementById('todoCount'),
   completedCount: document.getElementById('completedCount'),
-  todoSection: document.getElementById('todoSection'),
-  completedSection: document.getElementById('completedSection'),
-  emptyStateView: document.getElementById('emptyStateView'),
-  btnFilterMyTasks: document.getElementById('btnFilterMyTasks'),
-  btnFilterUrgentTasks: document.getElementById('btnFilterUrgentTasks'),
-  btnClearQuickFilters: document.getElementById('btnClearQuickFilters'),
-  
-  // Lists
-  listsContainer: document.getElementById('listsContainer'),
-  badgeCountAll: document.getElementById('badgeCountAll'),
-  
-  // Modals
-  addListModal: document.getElementById('addListModal'),
-  btnOpenAddListModal: document.getElementById('btnOpenAddListModal'),
-  btnCloseAddListModal: document.getElementById('btnCloseAddListModal'),
-  btnCancelAddList: document.getElementById('btnCancelAddList'),
-  btnSaveList: document.getElementById('btnSaveList'),
-  addListForm: document.getElementById('addListForm'),
-  inputListName: document.getElementById('inputListName'),
-  selectListGroup: document.getElementById('selectListGroup'),
-  newGroupNameGroup: document.getElementById('newGroupNameGroup'),
-  inputNewGroupName: document.getElementById('inputNewGroupName'),
-  
-  settingsModal: document.getElementById('settingsModal'),
-  btnCloseSettingsModal: document.getElementById('btnCloseSettingsModal'),
-  btnConfirmCloseSettings: document.getElementById('btnConfirmCloseSettings'),
-  btnResetApp: document.getElementById('btnResetApp'),
-  btnEnableNotifications: document.getElementById('btnEnableNotifications'),
-  btnSwitchToGus: document.getElementById('btnSwitchToGus'),
-  btnSwitchToIsa: document.getElementById('btnSwitchToIsa'),
-  settingsConnectedDb: document.getElementById('settingsConnectedDb'),
-  
-  // Invitation & IFTTT
-  btnCopyInviteLink: document.getElementById('btnCopyInviteLink'),
-  inviteQrCode: document.getElementById('inviteQrCode'),
-  inviteQrCodeText: document.getElementById('inviteQrCodeText'),
-  setupIftttKey: document.getElementById('setupIftttKey'),
-  setupIftttEvent: document.getElementById('setupIftttEvent'),
-  btnTestIfttt: document.getElementById('btnTestIfttt'),
-  
-  // Forms & Inputs
-  addTaskForm: document.getElementById('addTaskForm'),
-  inputTaskTitle: document.getElementById('inputTaskTitle'),
-  inputTaskDeadline: document.getElementById('inputTaskDeadline'),
-  selectTaskOwner: document.getElementById('selectTaskOwner'),
-  selectTaskPriority: document.getElementById('selectTaskPriority'),
-  currentUserBadge: document.getElementById('currentUserBadge'),
-  
-  // Calendar View Elements
+  btnUncheckAll: document.getElementById('btnUncheckAll'),
+  btnClearCompleted: document.getElementById('btnClearCompleted'),
+  btnRestoreDefaults: document.getElementById('btnRestoreDefaults'),
+  stickyTaskAddBar: document.getElementById('stickyTaskAddBar'),
+  stickyAddTaskForm: document.getElementById('stickyAddTaskForm'),
+  inputStickyTaskTitle: document.getElementById('inputStickyTaskTitle'),
+
+  // Calendar View
   btnPrevMonth: document.getElementById('btnPrevMonth'),
   btnNextMonth: document.getElementById('btnNextMonth'),
+  btnCalendarToday: document.getElementById('btnCalendarToday'),
   calendarMonthTitle: document.getElementById('calendarMonthTitle'),
   calendarGrid: document.getElementById('calendarGrid'),
-  
-  // Projects View Elements
+  calendarDayPanel: document.getElementById('calendarDayPanel'),
+  calendarDayPanelTitle: document.getElementById('calendarDayPanelTitle'),
+  calendarDayPanelSub: document.getElementById('calendarDayPanelSub'),
+  btnOpenDayInTasks: document.getElementById('btnOpenDayInTasks'),
+  calendarDayTasksList: document.getElementById('calendarDayTasksList'),
+  calendarDayAddForm: document.getElementById('calendarDayAddForm'),
+  inputCalendarDayTask: document.getElementById('inputCalendarDayTask'),
+  selectCalendarDayOwner: document.getElementById('selectCalendarDayOwner'),
+
+  // Projects View
   btnOpenAddProjectModal: document.getElementById('btnOpenAddProjectModal'),
   projectsListContainer: document.getElementById('projectsListContainer'),
   addProjectModal: document.getElementById('addProjectModal'),
@@ -120,90 +188,216 @@ const elements = {
   btnSaveProject: document.getElementById('btnSaveProject'),
   inputProjectName: document.getElementById('inputProjectName'),
   inputProjectTargetDate: document.getElementById('inputProjectTargetDate'),
-  
-  // Mural View Elements
+
+  // Mural & Nós View
   btnOpenAddNoteModal: document.getElementById('btnOpenAddNoteModal'),
   notesGrid: document.getElementById('notesGrid'),
+  nosHistoryList: document.getElementById('nosHistoryList'),
   addNoteModal: document.getElementById('addNoteModal'),
   btnCloseAddNoteModal: document.getElementById('btnCloseAddNoteModal'),
   btnCancelAddNote: document.getElementById('btnCancelAddNote'),
   btnSaveNote: document.getElementById('btnSaveNote'),
   inputNoteText: document.getElementById('inputNoteText'),
-  
-  // Wishlist View Elements
+
+  // Wishlist View
   btnOpenAddWishModal: document.getElementById('btnOpenAddWishModal'),
   wishlistGus: document.getElementById('wishlistGus'),
   wishlistIsa: document.getElementById('wishlistIsa'),
   wishlistShared: document.getElementById('wishlistShared'),
+  wishCountGus: document.getElementById('wishCountGus'),
+  wishCountIsa: document.getElementById('wishCountIsa'),
+  wishCountShared: document.getElementById('wishCountShared'),
   addWishModal: document.getElementById('addWishModal'),
   btnCloseAddWishModal: document.getElementById('btnCloseAddWishModal'),
   btnCancelAddWish: document.getElementById('btnCancelAddWish'),
   btnSaveWish: document.getElementById('btnSaveWish'),
   inputWishTitle: document.getElementById('inputWishTitle'),
+  inputWishPrice: document.getElementById('inputWishPrice'),
   inputWishLink: document.getElementById('inputWishLink'),
   inputWishNotes: document.getElementById('inputWishNotes'),
-  
-  // Stats & Achievements
+
+  // Stats View
   statsSummaryContainer: document.getElementById('statsSummaryContainer'),
   achievementsGrid: document.getElementById('achievementsGrid'),
-  
+  achievementsProgressBadge: document.getElementById('achievementsProgressBadge'),
+
+  // Add List Modal
+  addListModal: document.getElementById('addListModal'),
+  btnCloseAddListModal: document.getElementById('btnCloseAddListModal'),
+  btnCancelAddList: document.getElementById('btnCancelAddList'),
+  btnSaveList: document.getElementById('btnSaveList'),
+  inputListName: document.getElementById('inputListName'),
+  selectListGroup: document.getElementById('selectListGroup'),
+  newGroupNameGroup: document.getElementById('newGroupNameGroup'),
+  inputNewGroupName: document.getElementById('inputNewGroupName'),
+
+  // Settings Modal
+  settingsModal: document.getElementById('settingsModal'),
+  btnCloseSettingsModal: document.getElementById('btnCloseSettingsModal'),
+  btnConfirmCloseSettings: document.getElementById('btnConfirmCloseSettings'),
+  btnSwitchToGus: document.getElementById('btnSwitchToGus'),
+  btnSwitchToIsa: document.getElementById('btnSwitchToIsa'),
+  btnSetThemeDark: document.getElementById('btnSetThemeDark'),
+  btnSetThemeLight: document.getElementById('btnSetThemeLight'),
+  btnSetThemeAuto: document.getElementById('btnSetThemeAuto'),
+  btnSettingsToggleSound: document.getElementById('btnSettingsToggleSound'),
+  btnEnableNotifications: document.getElementById('btnEnableNotifications'),
+  notificationStatusHint: document.getElementById('notificationStatusHint'),
+  settingsInviteBlock: document.getElementById('settingsInviteBlock'),
+  btnCopyInviteLink: document.getElementById('btnCopyInviteLink'),
+  inviteQrCode: document.getElementById('inviteQrCode'),
+  inviteQrCodeText: document.getElementById('inviteQrCodeText'),
+  setupIftttKey: document.getElementById('setupIftttKey'),
+  setupIftttEvent: document.getElementById('setupIftttEvent'),
+  btnTestIfttt: document.getElementById('btnTestIfttt'),
+  btnExportBackup: document.getElementById('btnExportBackup'),
+  btnImportBackup: document.getElementById('btnImportBackup'),
+  inputImportBackupFile: document.getElementById('inputImportBackupFile'),
+  settingsConnectedDb: document.getElementById('settingsConnectedDb'),
+  btnConnectFirebaseFromLocal: document.getElementById('btnConnectFirebaseFromLocal'),
+  btnResetApp: document.getElementById('btnResetApp'),
+
   // Setup Overlay
   setupOverlay: document.getElementById('setupOverlay'),
+  setupAvatarsPair: document.getElementById('setupAvatarsPair'),
+  btnStartLocalMode: document.getElementById('btnStartLocalMode'),
+  btnCopyFirebaseRules: document.getElementById('btnCopyFirebaseRules'),
+  firebaseRulesSnippet: document.getElementById('firebaseRulesSnippet'),
   setupForm: document.getElementById('setupForm'),
   setupSecretKey: document.getElementById('setupSecretKey'),
   setupDbUrl: document.getElementById('setupDbUrl'),
   setupApiKey: document.getElementById('setupApiKey'),
-  setupProjectId: document.getElementById('setupProjectId'),
-
-  // New elements for Dashboard & Us Integration
-  viewDashboard: document.getElementById('viewDashboard'),
-  dashboardUserGreeting: document.getElementById('dashboardUserGreeting'),
-  dashboardProgressSub: document.getElementById('dashboardProgressSub'),
-  dashboardProgressCircle: document.getElementById('dashboardProgressCircle'),
-  dashboardUrgentContainer: document.getElementById('dashboardUrgentContainer'),
-  dashboardUrgentList: document.getElementById('dashboardUrgentList'),
-  dashboardListsGrid: document.getElementById('dashboardListsGrid'),
-  btnDashboardOpenAddList: document.getElementById('btnDashboardOpenAddList'),
-  
-
-  
-  // Sticky add bar & back button:
-  stickyTaskAddBar: document.getElementById('stickyTaskAddBar'),
-  btnHeaderBack: document.getElementById('btnHeaderBack'),
-  
-  // Nós history list:
-  nosHistoryList: document.getElementById('nosHistoryList'),
-
-  // Mobile Bottom Navigation
-  mobileBottomNav: document.getElementById('mobileBottomNav'),
-  bottomNavBadgeTasks: document.getElementById('bottomNavBadgeTasks'),
-  bottomNavBtnMore: document.getElementById('bottomNavBtnMore'),
-  
-  // Theme Toggle Elements
-  btnToggleTheme: document.getElementById('btnToggleTheme'),
-  btnSetThemeLight: document.getElementById('btnSetThemeLight'),
-  btnSetThemeDark: document.getElementById('btnSetThemeDark'),
-  btnSetThemeAuto: document.getElementById('btnSetThemeAuto'),
-  
-  // Couple Progress Ring & Mural Preview
-  svgRingGus: document.getElementById('svgRingGus'),
-  svgRingIsa: document.getElementById('svgRingIsa'),
-  legendGusDone: document.getElementById('legendGusDone'),
-  legendIsaDone: document.getElementById('legendIsaDone'),
-  dashboardMuralPreviewContainer: document.getElementById('dashboardMuralPreviewContainer'),
-  dashboardMuralAuthor: document.getElementById('dashboardMuralAuthor'),
-  dashboardMuralText: document.getElementById('dashboardMuralText'),
-  dashboardMuralPreview: document.getElementById('dashboardMuralPreview')
+  setupProjectId: document.getElementById('setupProjectId')
 };
 
-// Theme Controller (Dark Mode / Light Mode / Auto)
+// ============================================================================
+// UTILITIES & HELPERS
+// ============================================================================
+
+function escapeHTML(str) {
+  if (str === null || str === undefined) return '';
+  return String(str).replace(/[&<>'"]/g, tag => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    "'": '&#39;',
+    '"': '&quot;'
+  }[tag] || tag));
+}
+
+function ownerDisplayName(owner) {
+  if (owner === 'Gus') return 'Gustavo';
+  if (owner === 'Isa') return 'Isabella';
+  return 'Ambos';
+}
+
+function ownerShortName(owner) {
+  if (owner === 'Gus') return 'Gustavo';
+  if (owner === 'Isa') return 'Isabella';
+  return 'Ambos';
+}
+
+function copyTextSafe(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    return navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
+  }
+  return fallbackCopy(text);
+}
+
+function fallbackCopy(text) {
+  return new Promise((resolve, reject) => {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.top = '-9999px';
+    document.body.appendChild(textarea);
+    textarea.select();
+    try {
+      document.execCommand('copy');
+      resolve();
+    } catch (e) {
+      reject(e);
+    } finally {
+      document.body.removeChild(textarea);
+    }
+  });
+}
+
+function toLocalDatetimeInputValue(isoString) {
+  if (!isoString) return '';
+  const date = new Date(isoString);
+  if (isNaN(date.getTime())) return '';
+  const tzOffset = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - tzOffset).toISOString().slice(0, 16);
+}
+
+function formatDeadline(isoString) {
+  if (!isoString) return { text: '', className: '' };
+  const date = new Date(isoString);
+  if (isNaN(date.getTime())) return { text: '', className: '' };
+  const now = new Date();
+  const isOverdue = date < now;
+  const formatted = date.toLocaleString('pt-BR', {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+
+  if (isOverdue) {
+    return { text: `⚠️ Atrasada · ${formatted}`, className: 'deadline-overdue' };
+  }
+  const diffHours = (date - now) / (1000 * 60 * 60);
+  if (diffHours <= 24) {
+    return { text: `⏳ Urgente · ${formatted}`, className: 'deadline-urgent' };
+  }
+  return { text: `⏰ ${formatted}`, className: '' };
+}
+
+function getMotivationMessage(done, total) {
+  if (total === 0) return 'Adicione novas tarefas clicando no botão "+" em cada cartão! ✨';
+  const pct = Math.round((done / total) * 100);
+  if (pct === 0) return 'Bora começar! Marque as caixinhas conforme forem terminando ✨';
+  if (pct < 50) return 'Ótimo começo! Continuem nesse ritmo 💪';
+  if (pct < 100) return 'Mais da metade concluída! Falta pouquinho 🚀';
+  return 'Parabéns! Todas as tarefas concluídas! Hora do sorvete com o Bruce! 🍦🐶💛';
+}
+
+function getSmartListIcon(name) {
+  const n = (name || '').toLowerCase();
+  if (n.includes('mercado') || n.includes('compra') || n.includes('feira')) return '🛒';
+  if (n.includes('casa') || n.includes('limpeza') || n.includes('rotina') || n.includes('organiza')) return '🏠';
+  if (n.includes('trabalho') || n.includes('estud') || n.includes('facul')) return '📚';
+  if (n.includes('viagem') || n.includes('férias') || n.includes('ferias') || n.includes('mala')) return '✈️';
+  if (n.includes('pet') || n.includes('bruce') || n.includes('cachorro')) return '🐶';
+  if (n.includes('finan') || n.includes('conta') || n.includes('pagar')) return '💰';
+  return '📋';
+}
+
+function closeMobileSidebar() {
+  el.sidebar.classList.remove('open');
+  el.sidebarOverlay.classList.remove('open');
+}
+
+function closeAllModals() {
+  document.querySelectorAll('.modal-overlay.open').forEach(m => m.classList.remove('open'));
+  el.activityDrawer.classList.remove('open');
+  el.drawerOverlay.classList.remove('open');
+  closeMobileSidebar();
+}
+
+// ============================================================================
+// THEME & SOUND CONTROLLERS
+// ============================================================================
+
 function initTheme() {
-  const savedTheme = localStorage.getItem('tasklist_theme') || 'auto';
-  applyTheme(savedTheme, false);
+  const saved = localStorage.getItem('tasklist_theme') || 'dark';
+  applyTheme(saved, false);
 
   if (window.matchMedia) {
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-      if ((localStorage.getItem('tasklist_theme') || 'auto') === 'auto') {
+      if ((localStorage.getItem('tasklist_theme') || 'dark') === 'auto') {
         applyTheme('auto', false);
       }
     });
@@ -211,1507 +405,2499 @@ function initTheme() {
 }
 
 function applyTheme(theme, save = true) {
-  if (save) {
-    localStorage.setItem('tasklist_theme', theme);
-  }
-  
-  let isDark = false;
-  if (theme === 'dark') {
-    isDark = true;
-  } else if (theme === 'light') {
-    isDark = false;
+  if (save) localStorage.setItem('tasklist_theme', theme);
+
+  let isLight = false;
+  if (theme === 'light') {
+    isLight = true;
+  } else if (theme === 'dark') {
+    isLight = false;
   } else {
-    isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    isLight = window.matchMedia && !window.matchMedia('(prefers-color-scheme: dark)').matches;
   }
 
-  if (isDark) {
-    document.documentElement.setAttribute('data-theme', 'dark');
+  if (isLight) {
+    document.documentElement.setAttribute('data-theme', 'light');
   } else {
     document.documentElement.removeAttribute('data-theme');
   }
 
-  // Update theme buttons in Settings modal
-  const themeButtons = {
-    'light': elements.btnSetThemeLight,
-    'dark': elements.btnSetThemeDark,
-    'auto': elements.btnSetThemeAuto
-  };
-  
-  const currentSaved = localStorage.getItem('tasklist_theme') || 'auto';
-  Object.keys(themeButtons).forEach(t => {
-    if (themeButtons[t]) {
-      const isCurrent = t === currentSaved;
-      themeButtons[t].classList.toggle('active', isCurrent);
-      themeButtons[t].style.borderColor = isCurrent ? 'var(--color-primary)' : 'var(--border-standard)';
-      themeButtons[t].style.backgroundColor = isCurrent ? 'var(--color-primary-fixed)' : 'transparent';
-    }
-  });
+  const metaTheme = document.querySelector('meta[name="theme-color"]');
+  if (metaTheme) metaTheme.setAttribute('content', isLight ? '#f7f4eb' : '#181a20');
+
+  if (el.themeIcon) el.themeIcon.textContent = isLight ? '🌙' : '☀️';
+  if (el.themeLabel) el.themeLabel.textContent = isLight ? 'Quadro' : 'Claro';
+
+  const currentSaved = localStorage.getItem('tasklist_theme') || 'dark';
+  if (el.btnSetThemeDark) el.btnSetThemeDark.classList.toggle('active', currentSaved === 'dark');
+  if (el.btnSetThemeLight) el.btnSetThemeLight.classList.toggle('active', currentSaved === 'light');
+  if (el.btnSetThemeAuto) el.btnSetThemeAuto.classList.toggle('active', currentSaved === 'auto');
 }
 
-// Run initialization
-initTheme();
-setupEventListeners();
-checkConfiguration();
+function updateSoundUI() {
+  const on = isSoundEnabled();
+  if (el.soundIcon) el.soundIcon.textContent = on ? '🔊' : '🔇';
+  if (el.btnSettingsToggleSound) {
+    el.btnSettingsToggleSound.textContent = on ? '🔊 Efeitos Sonoros: Ativados' : '🔇 Efeitos Sonoros: Silenciados';
+  }
+}
 
-// Check if app has database config
+function updateSyncStatusUI(status) {
+  appState.syncStatus = status;
+  if (!el.syncStatusPill || !el.syncStatusText) return;
+  el.syncStatusPill.dataset.status = status;
+
+  if (status === 'online') {
+    el.syncStatusText.textContent = 'Sincronizado (Firebase)';
+  } else if (status === 'local') {
+    el.syncStatusText.textContent = 'Salvo localmente';
+  } else if (status === 'reconnecting') {
+    el.syncStatusText.textContent = 'Reconectando...';
+  } else {
+    el.syncStatusText.textContent = 'Offline';
+  }
+}
+
+// ============================================================================
+// INITIALIZATION & CONNECTION LIFECYCLE
+// ============================================================================
+
+function init() {
+  resizeConfettiCanvas();
+  initConfirmModal();
+  initTheme();
+  updateSoundUI();
+  renderQuickAddEmojiTray();
+  renderSetupAvatars();
+  setupEventListeners();
+  checkConfiguration();
+}
+
+function renderSetupAvatars() {
+  if (!el.setupAvatarsPair) return;
+  el.setupAvatarsPair.innerHTML = `
+    <div class="setup-avatar-box gus">${GUS_AVATAR_SVG}</div>
+    <span style="font-size: 1.4rem;">💛</span>
+    <div class="setup-avatar-box isa">${ISA_AVATAR_SVG}</div>
+  `;
+}
+
+function teardownListeners() {
+  if (unsubscribeData) { unsubscribeData(); unsubscribeData = null; }
+  if (unsubscribeConn) { unsubscribeConn(); unsubscribeConn = null; }
+}
+
 function checkConfiguration() {
   handleIncomingInvite();
+  teardownListeners();
+
   const config = db.getSavedConfig();
   if (config) {
     appState.currentUser = config.currentUser;
     appState.secretKey = config.secretKey;
-    
-    // Hide setup overlay and show main layout loading
-    elements.setupOverlay.classList.remove('open');
-    elements.activeListTitle.innerText = "Sincronizando...";
-    
-    // Initialize Firebase and listen
-    const success = db.initFirebase();
-    if (success) {
-      db.listenToData(handleDataSync);
-      updateProfileBadgeUI();
+    el.setupOverlay.classList.remove('open');
+    el.activeListTitle.textContent = 'Sincronizando...';
+    updateSyncStatusUI('reconnecting');
+
+    const ok = db.initFirebase();
+    if (ok) {
+      unsubscribeConn = db.listenToConnectionStatus(updateSyncStatusUI);
+      unsubscribeData = db.listenToData(handleDataSync);
+      updateSettingsModalUI();
     } else {
-      alert("Erro ao iniciar Firebase. Verifique suas configurações.");
+      showToast('Erro ao iniciar Firebase. Verifique suas credenciais.', 'error');
       showSetupScreen();
     }
+  } else if (db.isLocalMode()) {
+    appState.currentUser = db.getCurrentUser();
+    el.setupOverlay.classList.remove('open');
+    updateSyncStatusUI('local');
+    unsubscribeData = db.listenToData(handleDataSync);
+    updateSettingsModalUI();
   } else {
     showSetupScreen();
   }
 }
 
-// Show Setup Configuration Screen
 function showSetupScreen() {
-  elements.setupOverlay.classList.add('open');
-  elements.mainContent.style.display = 'none';
+  teardownListeners();
+  el.setupOverlay.classList.add('open');
+  el.mainContent.style.display = 'none';
 }
 
-// Handle Real-Time sync updates from Firebase
 function handleDataSync(freshData) {
-  // Check for notifications
+  const normalized = db.normalizeData(freshData);
+
   if (appState.dbData) {
-    notifications.checkNewActivities(freshData.history, appState.currentUser);
+    notifications.checkNewActivities(normalized.history, appState.currentUser);
   } else {
-    // First data load, init notifications history pointer
-    notifications.initNotifications(freshData.history);
+    notifications.initNotifications(normalized.history);
   }
-  
-  // Save to state
-  appState.dbData = freshData;
-  
-  // Check for reactions
-  if (freshData && freshData.history) {
-    notifications.checkNewReactions(freshData.history, appState.currentUser);
+
+  appState.dbData = normalized;
+
+  if (normalized.history) {
+    notifications.checkNewReactions(normalized.history, appState.currentUser);
   }
-  
-  // Lazy Cron for IFTTT morning summary
-  if (freshData) {
-    ifttt.checkAndTriggerMorningSummary(freshData, db.updateDatabase);
+
+  if (!db.isLocalMode()) {
+    ifttt.checkAndTriggerMorningSummary(normalized, db.updateDatabase);
   }
-  
-  // Render entire UI
-  elements.mainContent.style.display = 'flex';
+
+  el.mainContent.style.display = 'flex';
   renderApp();
-}
-
-// Render the application interface
-function renderApp() {
-  renderProfileBadge();
-  renderSidebar();
-  renderHistory();
-  
-  // Hide all tab views
-  if (elements.viewDashboard) elements.viewDashboard.style.display = 'none';
-  elements.viewTasks.style.display = 'none';
-  elements.viewCalendar.style.display = 'none';
-  elements.viewProjects.style.display = 'none';
-  elements.viewNotes.style.display = 'none';
-  elements.viewWishlist.style.display = 'none';
-  elements.viewStats.style.display = 'none';
-  
-  // Hide sticky bottom task add bar by default
-  if (elements.stickyTaskAddBar) elements.stickyTaskAddBar.classList.remove('active');
-  
-  // Header Back Button & Hamburger Menu logic (Mobile-First Context Header)
-  const isMobile = window.innerWidth <= 800;
-  const inSpecificList = appState.activeTab === 'tasks' && appState.activeFilter === 'list';
-  
-  if (elements.btnHeaderBack) {
-    if (isMobile && inSpecificList) {
-      elements.btnHeaderBack.style.display = 'flex';
-      if (elements.btnToggleMenu) elements.btnToggleMenu.style.display = 'none';
-    } else {
-      elements.btnHeaderBack.style.display = 'none';
-      if (elements.btnToggleMenu) {
-        elements.btnToggleMenu.style.display = isMobile ? 'flex' : 'none';
-      }
-    }
-  }
-
-  // Update sidebar active state (for desktop)
-  document.querySelectorAll('.sidebar-section .nav-item').forEach(btn => btn.classList.remove('active'));
-  const sidebarTabs = {
-    'dashboard': document.getElementById('tabDashboard'),
-    'tasks': document.getElementById('tabTasks'),
-    'calendar': document.getElementById('tabCalendar'),
-    'projects': document.getElementById('tabProjects'),
-    'notes': document.getElementById('tabNotes'),
-    'wishlist': document.getElementById('tabWishlist'),
-    'stats': document.getElementById('tabStats')
-  };
-  const activeSidebarEl = sidebarTabs[appState.activeTab];
-  if (activeSidebarEl && (appState.activeTab !== 'tasks' || appState.activeFilter !== 'list')) {
-    activeSidebarEl.classList.add('active');
-  }
-
-  // Synchronize Mobile Bottom Nav
-  if (elements.mobileBottomNav) {
-    elements.mobileBottomNav.querySelectorAll('.bottom-nav-item').forEach(btn => {
-      const tab = btn.getAttribute('data-tab');
-      btn.classList.toggle('active', tab === appState.activeTab);
-    });
-
-    if (elements.bottomNavBadgeTasks && appState.dbData && appState.dbData.tasks) {
-      const pendingCount = appState.dbData.tasks.filter(t => !t.completed).length;
-      if (pendingCount > 0) {
-        elements.bottomNavBadgeTasks.innerText = pendingCount;
-        elements.bottomNavBadgeTasks.style.display = 'flex';
-      } else {
-        elements.bottomNavBadgeTasks.style.display = 'none';
-      }
-    }
-  }
-
-  // Render active tab view
-  if (appState.activeTab === 'dashboard') {
-    if (elements.viewDashboard) elements.viewDashboard.style.display = 'flex';
-    renderDashboard();
-  } else if (appState.activeTab === 'tasks') {
-    elements.viewTasks.style.display = 'flex';
-    renderTasks();
-  } else if (appState.activeTab === 'calendar') {
-    elements.viewCalendar.style.display = 'flex';
-    renderCalendar();
-  } else if (appState.activeTab === 'projects') {
-    elements.viewProjects.style.display = 'flex';
-    renderProjects();
-  } else if (appState.activeTab === 'notes') {
-    elements.viewNotes.style.display = 'flex';
-    renderNotes();
-  } else if (appState.activeTab === 'wishlist') {
-    elements.viewWishlist.style.display = 'flex';
-    renderWishlist();
-  } else if (appState.activeTab === 'stats') {
-    elements.viewStats.style.display = 'flex';
-    renderStats();
-  }
-}
-
-// Render the Dashboard (Resumo do Dia) view
-function renderDashboard() {
-  const data = appState.dbData;
-  if (!data) return;
-
-  // 1. Greet active user
-  const isGus = appState.currentUser === 'Gus';
-  elements.dashboardUserGreeting.innerText = `Olá, ${isGus ? 'Gus 🧔' : 'Isa 👩'}!`;
-
-  // 2. Calculate daily progress & couple contributions
-  const now = new Date();
-  const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
-
-  const todayTasks = data.tasks.filter(t => {
-    if (!t.deadline) return false;
-    const d = new Date(t.deadline);
-    return d <= todayEnd;
-  });
-
-  const baseTasks = todayTasks.length > 0 ? todayTasks : data.tasks;
-  const completedTasks = baseTasks.filter(t => t.completed);
-  const totalCount = baseTasks.length;
-  const percent = totalCount > 0 ? Math.round((completedTasks.length / totalCount) * 100) : 0;
-
-  // Breakdown by partner
-  const gusDone = completedTasks.filter(t => t.completedBy === 'Gus' || (t.owner === 'Gus' && !t.completedBy)).length;
-  const isaDone = completedTasks.filter(t => t.completedBy === 'Isa' || (t.owner === 'Isa' && !t.completedBy)).length;
-
-  if (elements.legendGusDone) elements.legendGusDone.innerText = gusDone;
-  if (elements.legendIsaDone) elements.legendIsaDone.innerText = isaDone;
-
-  // Dual Progress SVG Ring
-  // Circumference for r=32: 2 * Math.PI * 32 ~= 201.06
-  const circ = 201.06;
-  if (elements.svgRingGus && elements.svgRingIsa) {
-    if (totalCount > 0) {
-      const gusLen = (gusDone / totalCount) * circ;
-      const isaLen = (isaDone / totalCount) * circ;
-
-      elements.svgRingGus.style.strokeDasharray = `${gusLen} ${circ}`;
-      elements.svgRingGus.style.strokeDashoffset = '0';
-
-      elements.svgRingIsa.style.strokeDasharray = `${isaLen} ${circ}`;
-      elements.svgRingIsa.style.strokeDashoffset = `${-gusLen}`;
-    } else {
-      elements.svgRingGus.style.strokeDasharray = `0 ${circ}`;
-      elements.svgRingIsa.style.strokeDasharray = `0 ${circ}`;
-    }
-  }
-
-  elements.dashboardProgressCircle.innerText = `${percent}%`;
-
-  if (todayTasks.length > 0) {
-    const pendingCount = todayTasks.length - completedTasks.length;
-    elements.dashboardProgressSub.innerText = pendingCount > 0 
-      ? `${pendingCount} tarefas pendentes para hoje`
-      : 'Todas as tarefas de hoje concluídas! 🎉';
-  } else {
-    const generalPending = data.tasks.filter(t => !t.completed).length;
-    elements.dashboardProgressSub.innerText = generalPending > 0
-      ? `${generalPending} tarefas pendentes no total`
-      : 'Nenhuma tarefa pendente! Aproveitem! 🌸';
-  }
-
-  // 2.1 Latest Mural Note Preview
-  if (elements.dashboardMuralPreviewContainer) {
-    const notes = data.notes || [];
-    if (notes.length > 0) {
-      const lastNote = notes[notes.length - 1];
-      elements.dashboardMuralPreviewContainer.style.display = 'block';
-      if (elements.dashboardMuralAuthor) {
-        elements.dashboardMuralAuthor.innerText = lastNote.user ? `De ${lastNote.user}` : 'Recado';
-      }
-      if (elements.dashboardMuralText) {
-        elements.dashboardMuralText.innerText = `"${lastNote.text}"`;
-      }
-    } else {
-      elements.dashboardMuralPreviewContainer.style.display = 'none';
-    }
-  }
-
-  // 3. Highlight Urgent/Overdue Tasks
-  const urgentTasks = data.tasks.filter(t => {
-    if (t.completed) return false;
-    if (!t.deadline) return false;
-    const d = new Date(t.deadline);
-    const diffHours = (d - now) / (1000 * 60 * 60);
-    return d < now || diffHours <= 12; // overdue or within 12h
-  });
-
-  if (urgentTasks.length > 0) {
-    elements.dashboardUrgentContainer.style.display = 'flex';
-    
-    // Sort urgent: oldest deadline first
-    urgentTasks.sort((a, b) => new Date(a.deadline) - new Date(b.deadline));
-    
-    elements.dashboardUrgentList.innerHTML = urgentTasks.slice(0, 3).map(task => {
-      const isOverdue = new Date(task.deadline) < now;
-      const typeClass = isOverdue ? 'overdue' : 'urgent';
-      const formattedTime = new Date(task.deadline).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-      const formattedDate = new Date(task.deadline).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
-      
-      let ownerChip = 'Geral';
-      let ownerClass = 'badge-shared';
-      if (task.owner === 'Gus') { ownerChip = 'Gus'; ownerClass = 'badge-gus'; }
-      if (task.owner === 'Isa') { ownerChip = 'Isa'; ownerClass = 'badge-isa'; }
-
-      return `
-        <div class="urgent-highlight-card ${typeClass}" data-task-id="${task.id}">
-          <div style="flex: 1; display: flex; flex-direction: column; gap: 4px;">
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <span class="task-meta-chip" style="background-color: var(--color-error-bg); color: var(--color-error); font-size: 10px; font-weight: bold; border-radius: var(--radius-sm);">
-                ${isOverdue ? '⚠️ ATRASADA' : '⏳ URGENTE'}
-              </span>
-              <span style="font-size: 11px; color: var(--color-outline); font-weight: 500;">
-                ${formattedDate}, ${formattedTime}
-              </span>
-            </div>
-            <div style="font-size: 14px; font-weight: 600; color: var(--color-on-surface);">${escapeHTML(task.title)}</div>
-          </div>
-          <span class="task-meta-chip ${ownerClass}" style="align-self: center; font-size: 10px;">${ownerChip}</span>
-        </div>
-      `;
-    }).join('');
-    
-    // Bind click to open specific task in list
-    elements.dashboardUrgentList.querySelectorAll('.urgent-highlight-card').forEach(card => {
-      card.addEventListener('click', () => {
-        const taskId = card.getAttribute('data-task-id');
-        const task = data.tasks.find(t => t.id === taskId);
-        if (task) {
-          appState.activeTab = 'tasks';
-          appState.activeListId = task.listId;
-          appState.activeFilter = 'list';
-          appState.expandedTaskId = taskId;
-          renderApp();
-        }
-      });
-    });
-  } else {
-    elements.dashboardUrgentContainer.style.display = 'none';
-  }
-
-  // 4. Render My Lists Grid
-  elements.dashboardListsGrid.innerHTML = data.lists.map(list => {
-    const listTasks = data.tasks.filter(t => t.listId === list.id && !t.completed);
-    const countText = listTasks.length === 1 ? '1 pendência' : `${listTasks.length} pendências`;
-    
-    let icon = '📁';
-    const nameLower = list.name.toLowerCase();
-    if (nameLower.includes('mercado') || nameLower.includes('compra') || nameLower.includes('supermercado')) icon = '🛒';
-    else if (nameLower.includes('casa') || nameLower.includes('limpeza') || nameLower.includes('organizar')) icon = '🏠';
-    else if (nameLower.includes('trabalho') || nameLower.includes('estud') || nameLower.includes('code')) icon = '💼';
-    else if (nameLower.includes('viagem') || nameLower.includes('ferias') || nameLower.includes('mala')) icon = '✈️';
-    
-    let ownerClass = 'shared';
-    if (list.owner === 'Gus') ownerClass = 'gus';
-    if (list.owner === 'Isa') ownerClass = 'isa';
-    
-    return `
-      <div class="dashboard-list-card" data-list-id="${list.id}">
-        <div class="list-card-icon ${ownerClass}">${icon}</div>
-        <div style="display: flex; flex-direction: column;">
-          <span style="font-size: 15px; font-weight: 700; color: var(--color-on-surface);">${escapeHTML(list.name)}</span>
-          <span style="font-size: 12px; color: var(--color-outline); margin-top: 2px;">${countText}</span>
-        </div>
-      </div>
-    `;
-  }).join('');
-
-  // Bind list card click to open list
-  elements.dashboardListsGrid.querySelectorAll('.dashboard-list-card').forEach(card => {
-    card.addEventListener('click', () => {
-      const listId = card.getAttribute('data-list-id');
-      appState.activeTab = 'tasks';
-      appState.activeListId = listId;
-      appState.activeFilter = 'list';
-      renderApp();
-    });
-  });
-}
-
-// Profile UI rendering
-function renderProfileBadge() {
-  const isGus = appState.currentUser === 'Gus';
-  const name = isGus ? 'Gus 🧔' : 'Isa 👩';
-  const avatarClass = isGus ? 'avatar-gus' : 'avatar-isa';
-  
-  elements.currentUserBadge.className = `user-badge`;
-  elements.currentUserBadge.innerHTML = `
-    <div class="user-avatar ${avatarClass}">${isGus ? 'G' : 'I'}</div>
-    <span>${name}</span>
-  `;
-}
-
-// Custom Date formatter for task card deadlines
-function formatDeadline(isoString) {
-  if (!isoString) return { text: '', class: '' };
-  
-  const date = new Date(isoString);
-  const now = new Date();
-  
-  // Check if overdue (excluding completed tasks in CSS)
-  const isOverdue = date < now;
-  
-  // Format Date String: e.g. "17 Jun, 15:30"
-  const formatted = date.toLocaleString('pt-BR', {
-    day: '2-digit',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit'
-  });
-  
-  if (isOverdue) {
-    return { text: `⚠️ Atrasado: ${formatted}`, class: 'warning' };
-  }
-  
-  // Check if urgent (within 24 hours)
-  const diffHours = (date - now) / (1000 * 60 * 60);
-  if (diffHours <= 24) {
-    return { text: `⏳ Urgente: ${formatted}`, class: 'warning' };
-  }
-  
-  return { text: `⏰ Prazo: ${formatted}`, class: '' };
-}
-
-// Update settings UI values
-function updateProfileBadgeUI() {
-  const isGus = appState.currentUser === 'Gus';
-  elements.btnSwitchToGus.classList.toggle('active', isGus);
-  elements.btnSwitchToIsa.classList.toggle('active', !isGus);
-  
-  const config = db.getSavedConfig();
-  if (config) {
-    elements.settingsConnectedDb.innerText = config.firebaseConfig.databaseURL;
-    
-    // Generate Invite QR Code
-    const inviteUrl = generateInviteLink();
-    if (inviteUrl) {
-      elements.inviteQrCode.src = 'https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=' + encodeURIComponent(inviteUrl);
-      elements.inviteQrCode.style.display = 'block';
-      elements.inviteQrCodeText.style.display = 'block';
-    } else {
-      elements.inviteQrCode.style.display = 'none';
-      elements.inviteQrCodeText.style.display = 'none';
-    }
-  }
-}
-
-// Render Sidebar lists and groups
-function renderSidebar() {
-  const data = appState.dbData;
-  if (!data) return;
-  
-  // 1. Calculate smart counts
-  // Tasks not completed
-  const openTasks = data.tasks.filter(t => !t.completed);
-  
-  elements.badgeCountAll.innerText = openTasks.length;
-  
-  // 2. Build group + list tree
-  let html = '';
-  
-  data.groups.forEach(group => {
-    const groupLists = data.lists.filter(l => l.groupId === group.id);
-    
-    // Group header
-    html += `
-      <div class="list-group-header">${escapeHTML(group.name)}</div>
-      <ul class="nav-list">
-    `;
-    
-    // Group lists
-    groupLists.forEach(list => {
-      const isSelected = appState.activeTab === 'tasks' && appState.activeFilter === 'list' && appState.activeListId === list.id;
-      const activeClass = isSelected ? 'active' : '';
-      
-      // Calculate list open tasks count
-      const listOpenCount = openTasks.filter(t => t.listId === list.id).length;
-      
-      // Owner dot color
-      let ownerDotClass = 'dot-shared';
-      if (list.owner === 'Gus') ownerDotClass = 'dot-gus';
-      if (list.owner === 'Isa') ownerDotClass = 'dot-isa';
-      
-      html += `
-        <li>
-          <a href="#" class="nav-item ${activeClass}" data-list-id="${list.id}">
-            <span class="nav-item-owner-dot ${ownerDotClass}"></span>
-            <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHTML(list.name)}</span>
-            ${listOpenCount > 0 ? `<span class="nav-item-badge">${listOpenCount}</span>` : ''}
-            <button class="btn-delete-list" data-list-id="${list.id}" style="color: var(--color-outline); font-size: 11px; padding: 2px 4px; display: none;">✕</button>
-          </a>
-        </li>
-      `;
-    });
-    
-    html += `</ul>`;
-  });
-  
-  elements.listsContainer.innerHTML = html;
-  
-  // Add click events to lists
-  elements.listsContainer.querySelectorAll('.nav-item').forEach(item => {
-    item.addEventListener('click', (e) => {
-      if (e.target.classList.contains('btn-delete-list')) return; // handled separately
-      e.preventDefault();
-      const listId = item.getAttribute('data-list-id');
-      appState.activeTab = 'tasks';
-      appState.activeListId = listId;
-      appState.activeFilter = 'list';
-      
-      // Remove active classes
-      document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-      item.classList.add('active');
-      
-      closeMobileSidebar();
-      renderApp();
-    });
-    
-    // Show delete list button on hover on desktop, or long press
-    const deleteBtn = item.querySelector('.btn-delete-list');
-    item.addEventListener('mouseenter', () => { deleteBtn.style.display = 'inline-block'; });
-    item.addEventListener('mouseleave', () => { deleteBtn.style.display = 'none'; });
-    
-    deleteBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      e.preventDefault();
-      const listId = deleteBtn.getAttribute('data-list-id');
-      handleDeleteList(listId);
-    });
-  });
-}
-
-// Render tasks inside the selected view
-function renderTasks() {
-  const data = appState.dbData;
-  if (!data) return;
-  
-  // Hide top quick add card on mobile in favor of sticky bottom add bar
-  const isMobile = window.innerWidth <= 800;
-  const isSpecificList = appState.activeFilter === 'list';
-  if (isMobile && isSpecificList && elements.stickyTaskAddBar) {
-    elements.stickyTaskAddBar.classList.add('active');
-    const quickAddCard = document.querySelector('.quick-add-card');
-    if (quickAddCard) quickAddCard.style.display = 'none';
-  } else {
-    if (elements.stickyTaskAddBar) elements.stickyTaskAddBar.classList.remove('active');
-    const quickAddCard = document.querySelector('.quick-add-card');
-    if (quickAddCard) quickAddCard.style.display = 'block';
-  }
-  
-  let listTitle = "Todas as Tarefas";
-  let listOwner = "Shared";
-  let filteredTasks = [...data.tasks];
-  
-  // Apply filtering
-  if (appState.activeFilter === 'today') {
-    listTitle = "Com Prazos Limites";
-    filteredTasks = filteredTasks.filter(t => t.deadline);
-  } else if (appState.activeFilter === 'date') {
-    const d = appState.selectedDate;
-    const dStr = d.toLocaleDateString('pt-BR');
-    listTitle = `Tarefas para ${dStr}`;
-    filteredTasks = filteredTasks.filter(t => {
-      if (!t.deadline) return false;
-      const taskDate = new Date(t.deadline);
-      return taskDate.getFullYear() === d.getFullYear() &&
-             taskDate.getMonth() === d.getMonth() &&
-             taskDate.getDate() === d.getDate();
-    });
-  } else if (appState.activeFilter === 'list') {
-    const activeList = data.lists.find(l => l.id === appState.activeListId);
-    if (activeList) {
-      listTitle = activeList.name;
-      listOwner = activeList.owner;
-      filteredTasks = filteredTasks.filter(t => t.listId === appState.activeListId);
-    } else {
-      // Fallback if list was deleted
-      appState.activeFilter = 'all';
-      appState.activeListId = 'all';
-      renderTasks();
-      return;
-    }
-  }
-
-  // Apply quick filters
-  if (appState.quickFilter === 'mine') {
-    filteredTasks = filteredTasks.filter(t => t.owner === appState.currentUser);
-  } else if (appState.quickFilter === 'urgent') {
-    const now = new Date();
-    filteredTasks = filteredTasks.filter(t => {
-      if (!t.deadline) return false;
-      const d = new Date(t.deadline);
-      return d < now || (d - now) / (1000 * 60 * 60) <= 12; // overdue or within 12h
-    });
-  }
-  
-  // Header title update
-  elements.activeListTitle.innerText = listTitle;
-  
-  // Owner Badge
-  elements.activeListOwnerBadge.className = 'list-owner-badge';
-  if (listOwner === 'Gus') {
-    elements.activeListOwnerBadge.innerText = 'Lista de Gus';
-    elements.activeListOwnerBadge.className = 'list-owner-badge badge-gus';
-    elements.activeListOwnerBadge.style.display = 'inline-block';
-  } else if (listOwner === 'Isa') {
-    elements.activeListOwnerBadge.innerText = 'Lista de Isa';
-    elements.activeListOwnerBadge.className = 'list-owner-badge badge-isa';
-    elements.activeListOwnerBadge.style.display = 'inline-block';
-  } else {
-    elements.activeListOwnerBadge.innerText = 'Lista Compartilhada';
-    elements.activeListOwnerBadge.className = 'list-owner-badge badge-shared';
-    elements.activeListOwnerBadge.style.display = 'inline-block';
-  }
-  
-  // Sort tasks: newest first
-  filteredTasks.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  
-  const todoList = filteredTasks.filter(t => !t.completed);
-  const completedList = filteredTasks.filter(t => t.completed);
-  
-  // Set progress numbers
-  const totalCount = filteredTasks.length;
-  const doneCount = completedList.length;
-  const percent = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
-  
-  elements.progressText.innerText = `${percent}%`;
-  elements.progressBarFill.style.width = `${percent}%`;
-  
-  elements.todoCount.innerText = todoList.length;
-  elements.completedCount.innerText = completedList.length;
-  
-  // Highlight active quick filter buttons
-  elements.btnFilterMyTasks.style.backgroundColor = appState.quickFilter === 'mine' ? 'var(--color-primary-fixed)' : 'transparent';
-  elements.btnFilterMyTasks.style.borderColor = appState.quickFilter === 'mine' ? 'var(--color-primary)' : 'var(--color-outline-variant)';
-  elements.btnFilterUrgentTasks.style.backgroundColor = appState.quickFilter === 'urgent' ? 'var(--color-primary-fixed)' : 'transparent';
-  elements.btnFilterUrgentTasks.style.borderColor = appState.quickFilter === 'urgent' ? 'var(--color-primary)' : 'var(--color-outline-variant)';
-  elements.btnClearQuickFilters.style.display = (appState.quickFilter !== 'none' || appState.activeFilter === 'date') ? 'inline-block' : 'none';
-  
-  // Toggle empty states
-  if (totalCount === 0) {
-    elements.emptyStateView.style.display = 'flex';
-    elements.todoSection.style.display = 'none';
-    elements.completedSection.style.display = 'none';
-    return;
-  }
-  
-  elements.emptyStateView.style.display = 'none';
-  elements.todoSection.style.display = todoList.length > 0 ? 'block' : 'none';
-  elements.completedSection.style.display = completedList.length > 0 ? 'block' : 'none';
-  
-  // Render Pending Tasks
-  elements.todoTaskList.innerHTML = todoList.map(task => renderTaskCard(task)).join('');
-  
-  // Render Completed Tasks
-  elements.completedTaskList.innerHTML = completedList.map(task => renderTaskCard(task)).join('');
-  
-  // Add Task card interaction events
-  addTaskListeners();
-}
-
-// Generate single task card HTML
-function renderTaskCard(task) {
-  const deadlineInfo = formatDeadline(task.deadline);
-  const isCompleted = task.completed;
-  
-  // Find task owner badge colors
-  let ownerChipClass = 'badge-shared';
-  let ownerName = '👪 Geral';
-  if (task.owner === 'Gus') { ownerChipClass = 'badge-gus'; ownerName = '🧔 Gus'; }
-  if (task.owner === 'Isa') { ownerChipClass = 'badge-isa'; ownerName = '👩 Isa'; }
-  
-  const priorityClass = `priority-${(task.priority || 'Medium').toLowerCase()}`;
-  
-  let priorityBadge = '';
-  if (task.priority === 'High') priorityBadge = '<span class="task-meta-chip" style="background-color: var(--color-error-bg); color: var(--color-error); font-weight: bold;">🔴 Alta</span>';
-  else if (task.priority === 'Low') priorityBadge = '<span class="task-meta-chip" style="background-color: var(--color-success-bg); color: var(--color-success); font-weight: bold;">🟢 Baixa</span>';
-  else priorityBadge = '<span class="task-meta-chip" style="background-color: var(--color-warning-bg); color: var(--color-warning-text); font-weight: bold;">🟡 Média</span>';
-  
-  const isExpanded = task.id === appState.expandedTaskId;
-  
-  const subtasks = task.subtasks || [];
-  const comments = task.comments || [];
-
-  // 1. Subtasks Checklist
-  let subtasksListHtml = '';
-  if (subtasks.length > 0) {
-    subtasksListHtml = subtasks.map(st => `
-      <div class="subtask-item ${st.completed ? 'completed' : ''}" style="display: flex; align-items: center; gap: 0.5rem; font-size: 13px; padding: 2px 0;">
-        <input type="checkbox" class="subtask-checkbox" data-subtask-id="${st.id}" ${st.completed ? 'checked' : ''} style="cursor: pointer;">
-        <span class="subtask-title" style="flex: 1; ${st.completed ? 'text-decoration: line-through; opacity: 0.6;' : ''}">${escapeHTML(st.title)}</span>
-        ${isExpanded ? `<button class="btn-delete-subtask" data-subtask-id="${st.id}" style="border: none; background: none; font-size: 12px; cursor: pointer; color: var(--color-outline); padding: 0 4px;">✕</button>` : ''}
-      </div>
-    `).join('');
-  } else if (isExpanded) {
-    subtasksListHtml = '<p style="font-size: 11px; color: var(--color-outline); font-style: italic; margin: 0;">Nenhuma sub-tarefa criada.</p>';
-  }
-
-  // 2. Comments List
-  let commentsListHtml = '';
-  if (comments.length > 0) {
-    commentsListHtml = comments.map(c => {
-      const time = new Date(c.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-      return `
-        <div class="comment-item" style="font-size: 12px; line-height: 1.4; background: white; padding: 6px 8px; border-radius: var(--radius-sm); border: var(--border-standard); margin-bottom: 4px;">
-          <span class="comment-user" style="font-weight: 700;">${c.user}:</span>
-          <span>${escapeHTML(c.text)}</span>
-          <span class="comment-time" style="font-size: 10px; color: var(--color-outline); float: right; margin-left: 8px;">${time}</span>
-        </div>
-      `;
-    }).join('');
-  } else if (isExpanded) {
-    commentsListHtml = '<p style="font-size: 11px; color: var(--color-outline); font-style: italic; margin: 0; padding: 4px 0;">Sem recados.</p>';
-  }
-
-  // 3. Settings Block (Priority, Recurrence, Owner, Deadline) - only when expanded
-  let settingsHtml = '';
-  if (isExpanded) {
-    const prioritySelect = `
-      <div style="display: flex; align-items: center; gap: 6px;">
-        <span style="font-size: 11px; font-weight: 700; color: var(--color-outline);">Prioridade:</span>
-        <select class="select-task-card-priority" style="font-size: 12px; padding: 2px 6px; border: var(--border-standard); border-radius: var(--radius-sm); background: white;">
-          <option value="Low" ${task.priority === 'Low' ? 'selected' : ''}>🟢 Baixa</option>
-          <option value="Medium" ${task.priority === 'Medium' || !task.priority ? 'selected' : ''}>🟡 Média</option>
-          <option value="High" ${task.priority === 'High' ? 'selected' : ''}>🔴 Alta</option>
-        </select>
-      </div>
-    `;
-    
-    const recurrenceSelect = `
-      <div style="display: flex; align-items: center; gap: 6px;">
-        <span style="font-size: 11px; font-weight: 700; color: var(--color-outline);">Repetir:</span>
-        <select class="select-task-card-recurrence" style="font-size: 12px; padding: 2px 6px; border: var(--border-standard); border-radius: var(--radius-sm); background: white;">
-          <option value="none" ${task.recurrence === 'none' || !task.recurrence ? 'selected' : ''}>Não repetir</option>
-          <option value="daily" ${task.recurrence === 'daily' ? 'selected' : ''}>Diariamente</option>
-          <option value="weekly" ${task.recurrence === 'weekly' ? 'selected' : ''}>Semanalmente</option>
-          <option value="monthly" ${task.recurrence === 'monthly' ? 'selected' : ''}>Mensalmente</option>
-        </select>
-      </div>
-    `;
-
-    const ownerSelect = `
-      <div style="display: flex; align-items: center; gap: 6px;">
-        <span style="font-size: 11px; font-weight: 700; color: var(--color-outline);">Responsável:</span>
-        <select class="select-task-card-owner" style="font-size: 12px; padding: 2px 6px; border: var(--border-standard); border-radius: var(--radius-sm); background: white;">
-          <option value="Shared" ${task.owner === 'Shared' || !task.owner ? 'selected' : ''}>👪 Compartilhado</option>
-          <option value="Gus" ${task.owner === 'Gus' ? 'selected' : ''}>Gus</option>
-          <option value="Isa" ${task.owner === 'Isa' ? 'selected' : ''}>Isa</option>
-        </select>
-      </div>
-    `;
-
-    let deadlineValue = '';
-    if (task.deadline) {
-      const date = new Date(task.deadline);
-      const tzOffset = date.getTimezoneOffset() * 60000;
-      const localISODate = new Date(date.getTime() - tzOffset).toISOString();
-      deadlineValue = localISODate.slice(0, 16);
-    }
-    const deadlineInput = `
-      <div style="display: flex; align-items: center; gap: 6px;">
-        <span style="font-size: 11px; font-weight: 700; color: var(--color-outline);">Prazo:</span>
-        <input type="datetime-local" class="input-task-card-deadline" value="${deadlineValue}" style="font-size: 12px; padding: 2px 6px; border: var(--border-standard); border-radius: var(--radius-sm); background: white;">
-      </div>
-    `;
-
-    settingsHtml = `
-      <div style="display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; border-bottom: 1px solid #f1f5f9; padding-bottom: 0.75rem; width: 100%;">
-        ${prioritySelect}
-        ${recurrenceSelect}
-        ${ownerSelect}
-        ${deadlineInput}
-      </div>
-    `;
-  }
-
-  // 4. Checklist Block Layout
-  let checklistBlockHtml = '';
-  if (subtasks.length > 0 || isExpanded) {
-    const inputAddHtml = isExpanded ? `
-      <div style="display: flex; gap: 6px; margin-top: 4px;">
-        <input type="text" class="input-subtask-add" placeholder="Adicionar item ao checklist..." style="flex: 1; font-size: 12px; border: none; border-bottom: 1px dashed var(--color-outline-variant); outline: none; background: transparent; padding: 4px 0;">
-        <button class="btn-subtask-add-submit" style="padding: 2px 8px; font-size: 12px; background-color: var(--color-primary); color: white; border: none; border-radius: var(--radius-sm); cursor: pointer;">+</button>
-      </div>
-    ` : '';
-
-    checklistBlockHtml = `
-      <div class="subtasks-section" style="display: flex; flex-direction: column; gap: 0.5rem; width: 100%;">
-        <label style="font-size: 11px; font-weight: 700; color: var(--color-outline);">Checklist de Itens</label>
-        <div class="subtask-list" style="display: flex; flex-direction: column; gap: 4px;">
-          ${subtasksListHtml}
-        </div>
-        ${inputAddHtml}
-      </div>
-    `;
-  }
-
-  // 5. Comments Block Layout
-  let commentsBlockHtml = '';
-  if (comments.length > 0 || isExpanded) {
-    const inputCommentHtml = isExpanded ? `
-      <div class="comment-form" style="display: flex; gap: 4px; margin-top: 4px; width: 100%;">
-        <input type="text" class="input-comment" placeholder="Escrever comentário..." style="flex: 1; font-size: 12px; border: var(--border-standard); border-radius: var(--radius-sm); padding: 4px 8px; outline: none;">
-        <button class="btn-comment-send" style="padding: 4px 10px; font-size: 12px; background-color: var(--color-primary); color: white; border: none; border-radius: var(--radius-sm); cursor: pointer;">Enviar</button>
-      </div>
-    ` : '';
-
-    commentsBlockHtml = `
-      <div class="comments-section" style="display: flex; flex-direction: column; gap: 0.5rem; background-color: var(--color-surface-container-low); padding: 0.75rem; border-radius: var(--radius-default); border: var(--border-standard); width: 100%;">
-        <label style="font-size: 11px; font-weight: 700; color: var(--color-outline);">Chat / Comentários</label>
-        <div class="comment-list" style="max-height: 120px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px;">
-          ${commentsListHtml}
-        </div>
-        ${inputCommentHtml}
-      </div>
-    `;
-  }
-
-  // Combine elements inside the card-expanded-content wrapper if there is any content to render
-  let extraContentHtml = '';
-  if (settingsHtml || checklistBlockHtml || commentsBlockHtml) {
-    extraContentHtml = `
-      <div class="task-card-expanded-content" style="display: flex; flex-direction: column; gap: 0.75rem; width: 100%; border-top: 1px solid #f1f5f9; padding-top: 0.75rem; margin-top: 0.5rem;">
-        ${settingsHtml}
-        ${checklistBlockHtml}
-        ${commentsBlockHtml}
-      </div>
-    `;
-  }
-  
-  return `
-    <div class="task-card ${isCompleted ? 'completed' : ''} ${priorityClass}" data-task-id="${task.id}">
-      <div style="display: flex; align-items: flex-start; width: 100%; gap: 0.75rem;">
-        <label class="checkbox-container" style="margin-top: 4px;">
-          <input type="checkbox" class="task-checkbox" ${isCompleted ? 'checked' : ''}>
-          <span class="checkmark"></span>
-        </label>
-        
-        <div class="task-card-clickable-area" style="flex: 1; cursor: pointer; display: flex; flex-direction: column;">
-          <div class="task-title" style="font-weight: 600; font-size: 14px;">${escapeHTML(task.title)}</div>
-          <div class="task-meta-row" style="margin-top: 4px;">
-            <span class="task-meta-chip ${ownerChipClass}">${ownerName}</span>
-            ${priorityBadge}
-            ${deadlineInfo.text ? `<span class="task-meta-chip deadline-badge ${deadlineInfo.class}">${deadlineInfo.text}</span>` : ''}
-            ${isCompleted && task.completedBy ? `<span class="task-meta-chip" style="font-style: italic; background-color: var(--color-surface-container);">Concluído por: ${task.completedBy}</span>` : ''}
-          </div>
-        </div>
-        
-        <button class="task-action-btn btn-delete-task" title="Excluir Tarefa" style="margin-top: 4px;">🗑️</button>
-      </div>
-      
-      ${extraContentHtml}
-    </div>
-  `;
-}
-
-// Add event handlers to task cards
-function addTaskListeners() {
-  // Click title/meta to expand/collapse card
-  document.querySelectorAll('.task-card-clickable-area').forEach(area => {
-    area.addEventListener('click', (e) => {
-      const card = area.closest('.task-card');
-      const taskId = card.getAttribute('data-task-id');
-      
-      if (appState.expandedTaskId === taskId) {
-        appState.expandedTaskId = null; // collapse
-      } else {
-        appState.expandedTaskId = taskId; // expand
-      }
-      renderTasks();
-    });
-  });
-  
-  // Checkbox toggle with celebratory micro-interaction
-  document.querySelectorAll('.task-checkbox').forEach(chk => {
-    chk.addEventListener('change', (e) => {
-      e.stopPropagation();
-      const card = chk.closest('.task-card');
-      const taskId = card.getAttribute('data-task-id');
-      const isChecked = chk.checked;
-
-      if (isChecked) {
-        card.classList.add('completing');
-        setTimeout(() => {
-          toggleTaskCompletion(taskId, true);
-        }, 280);
-      } else {
-        toggleTaskCompletion(taskId, false);
-      }
-    });
-  });
-  
-  // Delete button
-  document.querySelectorAll('.btn-delete-task').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const card = btn.closest('.task-card');
-      const taskId = card.getAttribute('data-task-id');
-      handleDeleteTask(taskId);
-    });
-  });
-  
-  // Subtasks toggle checkbox
-  document.querySelectorAll('.subtask-checkbox').forEach(chk => {
-    chk.addEventListener('change', (e) => {
-      e.stopPropagation();
-      const card = chk.closest('.task-card');
-      const taskId = card.getAttribute('data-task-id');
-      const subtaskId = chk.getAttribute('data-subtask-id');
-      toggleSubtaskCompletion(taskId, subtaskId, chk.checked);
-    });
-  });
-  
-  // Subtask delete button
-  document.querySelectorAll('.btn-delete-subtask').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const card = btn.closest('.task-card');
-      const taskId = card.getAttribute('data-task-id');
-      const subtaskId = btn.getAttribute('data-subtask-id');
-      handleDeleteSubtask(taskId, subtaskId);
-    });
-  });
-  
-  // Subtask add button/enter key
-  document.querySelectorAll('.input-subtask-add').forEach(input => {
-    const card = input.closest('.task-card');
-    const taskId = card.getAttribute('data-task-id');
-    const btn = card.querySelector('.btn-subtask-add-submit');
-    
-    const submitSubtask = () => {
-      const title = input.value.trim();
-      if (title) {
-        handleAddSubtask(taskId, title);
-      }
-    };
-    
-    input.addEventListener('click', (e) => e.stopPropagation());
-    input.addEventListener('keypress', (e) => {
-      e.stopPropagation();
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        submitSubtask();
-      }
-    });
-    
-    if (btn) {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        submitSubtask();
-      });
-    }
-  });
-  
-  // Comment submit form
-  document.querySelectorAll('.comment-form').forEach(form => {
-    const card = form.closest('.task-card');
-    const taskId = card.getAttribute('data-task-id');
-    const input = card.querySelector('.input-comment');
-    const btn = card.querySelector('.btn-comment-send');
-    
-    const submitComment = () => {
-      const text = input.value.trim();
-      if (text) {
-        handleAddComment(taskId, text);
-      }
-    };
-    
-    input.addEventListener('click', (e) => e.stopPropagation());
-    input.addEventListener('keypress', (e) => {
-      e.stopPropagation();
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        submitComment();
-      }
-    });
-    
-    if (btn) {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        submitComment();
-      });
-    }
-  });
-  
-  // Priority dropdown change
-  document.querySelectorAll('.select-task-card-priority').forEach(sel => {
-    sel.addEventListener('click', (e) => e.stopPropagation());
-    sel.addEventListener('change', (e) => {
-      const card = sel.closest('.task-card');
-      const taskId = card.getAttribute('data-task-id');
-      handleTaskPriorityChange(taskId, sel.value);
-    });
-  });
-  
-  // Recurrence dropdown change
-  document.querySelectorAll('.select-task-card-recurrence').forEach(sel => {
-    sel.addEventListener('click', (e) => e.stopPropagation());
-    sel.addEventListener('change', (e) => {
-      const card = sel.closest('.task-card');
-      const taskId = card.getAttribute('data-task-id');
-      handleTaskRecurrenceChange(taskId, sel.value);
-    });
-  });
-
-  // Owner dropdown change
-  document.querySelectorAll('.select-task-card-owner').forEach(sel => {
-    sel.addEventListener('click', (e) => e.stopPropagation());
-    sel.addEventListener('change', (e) => {
-      const card = sel.closest('.task-card');
-      const taskId = card.getAttribute('data-task-id');
-      handleTaskOwnerChange(taskId, sel.value);
-    });
-  });
-
-  // Deadline date-time picker change
-  document.querySelectorAll('.input-task-card-deadline').forEach(inp => {
-    inp.addEventListener('click', (e) => e.stopPropagation());
-    inp.addEventListener('change', (e) => {
-      const card = inp.closest('.task-card');
-      const taskId = card.getAttribute('data-task-id');
-      const isoDeadline = inp.value ? new Date(inp.value).toISOString() : null;
-      handleTaskDeadlineChange(taskId, isoDeadline);
-    });
-  });
-}
-
-// Render History Log items in drawer
-function renderHistory() {
-  const data = appState.dbData;
-  if (!data || !data.history) return;
-  
-  const historyHtml = data.history.map(log => {
-    let icon = '✏️';
-    let colorClass = 'dot-shared';
-    if (log.user === 'Gus') colorClass = 'avatar-gus';
-    if (log.user === 'Isa') colorClass = 'avatar-isa';
-    
-    switch(log.action) {
-      case 'add_task': icon = '➕'; break;
-      case 'complete_task': icon = '✓'; break;
-      case 'uncomplete_task': icon = '↩️'; break;
-      case 'delete_task': icon = '🗑️'; break;
-      case 'add_list': icon = '📁'; break;
-      case 'delete_list': icon = '✕'; break;
-      case 'add_note': icon = '📌'; break;
-      case 'delete_note': icon = '🗑️'; break;
-      case 'add_wish': icon = '🎁'; break;
-      case 'delete_wish': icon = '🗑️'; break;
-      case 'add_project': icon = '🚀'; break;
-      case 'delete_project': icon = '🗑️'; break;
-      case 'undo_action': icon = '↩️'; break;
-    }
-    
-    const time = new Date(log.timestamp).toLocaleTimeString('pt-BR', {
-      hour: '2-digit',
-      minute: '2-digit',
-      day: '2-digit',
-      month: 'short'
-    });
-    
-    let text = '';
-    if (log.action === 'add_task') {
-      text = `adicionou <strong>"${escapeHTML(log.taskTitle)}"</strong> na lista <em>${escapeHTML(log.listName)}</em>`;
-    } else if (log.action === 'complete_task') {
-      text = `marcou como concluída: <strong>"${escapeHTML(log.taskTitle)}"</strong>`;
-    } else if (log.action === 'uncomplete_task') {
-      text = `desmarcou a tarefa: <strong>"${escapeHTML(log.taskTitle)}"</strong>`;
-    } else if (log.action === 'delete_task') {
-      text = `removeu a tarefa: <strong>"${escapeHTML(log.taskTitle)}"</strong>`;
-    } else if (log.action === 'add_list') {
-      text = `criou a lista: <strong>"${escapeHTML(log.listName)}"</strong>`;
-    } else if (log.action === 'delete_list') {
-      text = `removeu a lista: <strong>"${escapeHTML(log.listName)}"</strong>`;
-    } else if (log.action === 'add_note') {
-      text = `deixou um recado no mural: <em>"${escapeHTML(log.noteText)}"</em>`;
-    } else if (log.action === 'delete_note') {
-      text = `removeu um recado do mural`;
-    } else if (log.action === 'add_wish') {
-      text = `adicionou na lista de desejos: <strong>"${escapeHTML(log.wishTitle)}"</strong>`;
-    } else if (log.action === 'delete_wish') {
-      text = `removeu o desejo: <strong>"${escapeHTML(log.wishTitle)}"</strong>`;
-    } else if (log.action === 'add_project') {
-      text = `criou uma nova grande meta: <strong>"${escapeHTML(log.projectName)}"</strong>`;
-    } else if (log.action === 'delete_project') {
-      text = `removeu a grande meta: <strong>"${escapeHTML(log.projectName)}"</strong>`;
-    } else if (log.action === 'undo_action') {
-      text = `desfez a ação <strong>"${escapeHTML(log.undoAction)}"</strong> executada por <em>${escapeHTML(log.undoUser)}</em>`;
-    }
-    
-    // Generate emoji reactions row
-    const emojis = ['❤️', '👍', '🎉', '😂'];
-    const logReactions = log.reactions || {};
-    let reactionsHtml = `<div class="history-reactions-row">`;
-    emojis.forEach(emoji => {
-      const userReacted = logReactions[appState.currentUser] === emoji;
-      const activeClass = userReacted ? 'active' : '';
-      
-      const count = Object.values(logReactions).filter(v => v === emoji).length;
-      const countBadge = count > 0 ? ` <span>${count}</span>` : '';
-      
-      reactionsHtml += `
-        <button class="btn-history-reaction ${activeClass}" data-log-id="${log.id}" data-emoji="${emoji}">
-          ${emoji}${countBadge}
-        </button>
-      `;
-    });
-    reactionsHtml += `</div>`;
-    
-    // Add undo button if applicable
-    const undoable = ['complete_task', 'add_task', 'add_list', 'add_note', 'add_wish'].includes(log.action);
-    const undoHtml = undoable ? `<button class="btn-history-undo" data-log-id="${log.id}" style="border: none; background: none; color: var(--color-error); font-size: 11px; cursor: pointer; padding: 0; margin-left: 8px;">[Desfazer]</button>` : '';
-    
-    return `
-      <div class="history-item" style="flex-direction: column; align-items: flex-start; gap: 4px; padding: 10px 0; border-bottom: 1px solid rgba(0,0,0,0.04);">
-        <div style="display: flex; align-items: center; width: 100%;">
-          <div class="history-marker ${colorClass}">${icon}</div>
-          <div class="history-text" style="flex: 1;">
-            <strong>${log.user}</strong> ${text}
-            <span class="history-time">${time}</span>
-            ${undoHtml}
-          </div>
-        </div>
-        ${reactionsHtml}
-      </div>
-    `;
-  }).join('');
-  
-  elements.historyList.innerHTML = historyHtml || '<p class="body-sm" style="color: var(--color-outline); text-align: center; margin-top: 2rem;">Nenhuma atividade registrada ainda.</p>';
-  
-  // Render history directly in the Nós (Us) view tab
-  if (elements.nosHistoryList) {
-    elements.nosHistoryList.innerHTML = historyHtml || '<p class="body-sm" style="color: var(--color-outline); text-align: center; margin-top: 1rem;">Nenhuma atividade registrada ainda.</p>';
-    
-    // Bind reactions in Nosotros History
-    elements.nosHistoryList.querySelectorAll('.btn-history-reaction').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const logId = btn.getAttribute('data-log-id');
-        const emoji = btn.getAttribute('data-emoji');
-        handleHistoryReaction(logId, emoji);
-      });
-    });
-    
-    // Bind undo in Nosotros History
-    elements.nosHistoryList.querySelectorAll('.btn-history-undo').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const logId = btn.getAttribute('data-log-id');
-        handleHistoryUndo(logId);
-      });
-    });
-  }
-
-  // Bind reactions
-  elements.historyList.querySelectorAll('.btn-history-reaction').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const logId = btn.getAttribute('data-log-id');
-      const emoji = btn.getAttribute('data-emoji');
-      handleHistoryReaction(logId, emoji);
-    });
-  });
-  
-  // Bind undo
-  elements.historyList.querySelectorAll('.btn-history-undo').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const logId = btn.getAttribute('data-log-id');
-      handleHistoryUndo(logId);
-    });
-  });
 }
 
 function saveDataAndRender(data) {
   checkRecurrenceAndClone(data);
   renderApp();
   db.updateDatabase(data).catch(err => {
-    alert("Erro ao salvar no Firebase! Certifique-se de que você configurou as Regras de Segurança no painel do Firebase Console para ler e escrever (veja o passo a passo na tela de configuração). Detalhes do erro: " + err.message);
-    console.error("Firebase write error:", err);
+    showToast('Erro ao salvar no Firebase! Verifique as regras de segurança.', 'error');
+    console.error('Firebase write error:', err);
   });
 }
 
-// Action: Toggle completion state of task
+// ============================================================================
+// MASTER RENDER ORCHESTRATOR
+// ============================================================================
+
+function renderApp() {
+  if (!appState.dbData) return;
+
+  renderProfileBadge();
+  renderSidebar();
+  renderHistory();
+
+  // Hide all views
+  [
+    el.viewDashboard, el.viewTasks, el.viewCalendar,
+    el.viewProjects, el.viewNotes, el.viewWishlist, el.viewStats
+  ].forEach(v => { if (v) v.style.display = 'none'; });
+
+  if (el.stickyTaskAddBar) el.stickyTaskAddBar.classList.remove('active');
+
+  // Mobile Context Header Back/Menu Logic
+  const isMobile = window.innerWidth <= 860;
+  const inSpecificList = appState.activeTab === 'tasks' && appState.activeFilter === 'list';
+
+  if (el.btnHeaderBack && el.btnToggleMenu) {
+    if (isMobile && inSpecificList) {
+      el.btnHeaderBack.style.display = 'inline-flex';
+      el.btnToggleMenu.style.display = 'none';
+    } else {
+      el.btnHeaderBack.style.display = 'none';
+      el.btnToggleMenu.style.display = isMobile ? 'inline-flex' : 'none';
+    }
+  }
+
+  // Update Sidebar Tab Active State
+  document.querySelectorAll('.sidebar .nav-item[data-nav-tab]').forEach(link => {
+    const tab = link.getAttribute('data-nav-tab');
+    const isActive = tab === appState.activeTab && !(appState.activeTab === 'tasks' && appState.activeFilter === 'list');
+    link.classList.toggle('active', isActive);
+  });
+
+  // Update Mobile Bottom Nav Active State + Pending Badge
+  if (el.mobileBottomNav) {
+    el.mobileBottomNav.querySelectorAll('.bottom-nav-item[data-tab]').forEach(btn => {
+      btn.classList.toggle('active', btn.getAttribute('data-tab') === appState.activeTab);
+    });
+    const pendingCount = appState.dbData.tasks.filter(t => !t.completed).length;
+    if (el.bottomNavBadgeTasks) {
+      el.bottomNavBadgeTasks.textContent = pendingCount;
+      el.bottomNavBadgeTasks.style.display = pendingCount > 0 ? 'flex' : 'none';
+    }
+  }
+
+  // Update Header Context & Render Active View
+  const tabHeaderMeta = {
+    dashboard: 'Resumo do Dia',
+    calendar: 'Calendário do Casal',
+    projects: 'Projetos & Sonhos',
+    notes: 'Mural & Nós',
+    wishlist: 'Lista de Desejos',
+    stats: 'Conquistas & Estatísticas'
+  };
+
+  if (appState.activeTab !== 'tasks') {
+    el.activeListTitle.textContent = tabHeaderMeta[appState.activeTab] || 'tasklist';
+    el.activeListOwnerBadge.style.display = 'none';
+  }
+
+  switch (appState.activeTab) {
+    case 'dashboard':
+      el.viewDashboard.style.display = 'flex';
+      renderDashboard();
+      break;
+    case 'tasks':
+      el.viewTasks.style.display = 'flex';
+      renderTasks();
+      break;
+    case 'calendar':
+      el.viewCalendar.style.display = 'flex';
+      renderCalendar();
+      break;
+    case 'projects':
+      el.viewProjects.style.display = 'flex';
+      renderProjects();
+      break;
+    case 'notes':
+      el.viewNotes.style.display = 'flex';
+      renderNotes();
+      break;
+    case 'wishlist':
+      el.viewWishlist.style.display = 'flex';
+      renderWishlist();
+      break;
+    case 'stats':
+      el.viewStats.style.display = 'flex';
+      renderStats();
+      break;
+  }
+}
+
+// ============================================================================
+// SIDEBAR & PROFILE BADGE
+// ============================================================================
+
+function renderProfileBadge() {
+  const isGus = appState.currentUser === 'Gus';
+  const name = isGus ? 'Gustavo' : 'Isabella';
+  const other = isGus ? 'Isabella' : 'Gustavo';
+  const avatarSvg = isGus ? GUS_AVATAR_SVG : ISA_AVATAR_SVG;
+
+  el.currentUserBadge.innerHTML = `
+    <div class="mini-avatar-wrap ${isGus ? 'gus' : 'isa'}">${avatarSvg}</div>
+    <div class="user-pill-info">
+      <span class="user-pill-name">${name}</span>
+      <span class="user-pill-hint">Trocar para ${other} ⇄</span>
+    </div>
+  `;
+}
+
+function renderSidebar() {
+  const data = appState.dbData;
+  const openTasks = data.tasks.filter(t => !t.completed);
+  el.badgeCountAll.textContent = openTasks.length;
+
+  let html = '';
+  data.groups.forEach(group => {
+    const groupLists = data.lists.filter(l => l.groupId === group.id);
+    if (groupLists.length === 0) return;
+
+    html += `<div class="list-group-header">${escapeHTML(group.name)}</div><ul class="nav-list">`;
+    groupLists.forEach(list => {
+      const isSelected = appState.activeTab === 'tasks' && appState.activeFilter === 'list' && appState.activeListId === list.id;
+      const listOpenCount = openTasks.filter(t => t.listId === list.id).length;
+      const dotClass = list.owner === 'Gus' ? 'dot-gus' : list.owner === 'Isa' ? 'dot-isa' : 'dot-shared';
+
+      html += `
+        <li>
+          <a href="#" class="nav-item ${isSelected ? 'active' : ''}" data-list-id="${list.id}">
+            <span class="nav-item-owner-dot ${dotClass}"></span>
+            <span class="nav-item-label">${escapeHTML(list.name)}</span>
+            ${listOpenCount > 0 ? `<span class="nav-item-badge">${listOpenCount}</span>` : ''}
+            <button type="button" class="btn-delete-list" data-list-id="${list.id}" title="Excluir lista" aria-label="Excluir lista ${escapeHTML(list.name)}">✕</button>
+          </a>
+        </li>
+      `;
+    });
+    html += `</ul>`;
+  });
+
+  el.listsContainer.innerHTML = html;
+
+  el.listsContainer.querySelectorAll('.nav-item[data-list-id]').forEach(item => {
+    item.addEventListener('click', e => {
+      if (e.target.closest('.btn-delete-list')) return;
+      e.preventDefault();
+      appState.activeTab = 'tasks';
+      appState.activeListId = item.getAttribute('data-list-id');
+      appState.activeFilter = 'list';
+      closeMobileSidebar();
+      renderApp();
+    });
+  });
+
+  el.listsContainer.querySelectorAll('.btn-delete-list').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      e.preventDefault();
+      handleDeleteList(btn.getAttribute('data-list-id'));
+    });
+  });
+}
+
+// ============================================================================
+// VIEW 0: DASHBOARD (RESUMO DO DIA)
+// ============================================================================
+
+function renderDashboard() {
+  const data = appState.dbData;
+  const isGus = appState.currentUser === 'Gus';
+  el.dashboardUserGreeting.textContent = `Olá, ${isGus ? 'Gustavo' : 'Isabella'}! Organização da Casa`;
+
+  const allTasks = data.tasks;
+  const allCompleted = allTasks.filter(t => t.completed);
+  const totalCount = allTasks.length;
+  const doneCount = allCompleted.length;
+  const pct = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
+
+  // Overall progress bar & motivation
+  el.dashboardMotivation.textContent = getMotivationMessage(doneCount, totalCount);
+  el.dashboardOverallCounter.textContent = `${doneCount} / ${totalCount} concluída${totalCount === 1 ? '' : 's'} (${pct}%)`;
+  el.dashboardProgressBar.style.width = `${pct}%`;
+
+  // Dual Couple Progress Ring (uses today's tasks if any exist, otherwise all tasks)
+  const now = new Date();
+  const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+  const todayTasks = allTasks.filter(t => t.deadline && new Date(t.deadline) <= todayEnd);
+  const ringBase = todayTasks.length > 0 ? todayTasks : allTasks;
+  const ringDone = ringBase.filter(t => t.completed);
+  const ringTotal = ringBase.length;
+  const ringPct = ringTotal > 0 ? Math.round((ringDone.length / ringTotal) * 100) : 0;
+
+  const gusDone = ringDone.filter(t => t.completedBy === 'Gus' || (!t.completedBy && t.owner === 'Gus')).length;
+  const isaDone = ringDone.filter(t => t.completedBy === 'Isa' || (!t.completedBy && t.owner === 'Isa')).length;
+
+  el.legendGusDone.textContent = gusDone;
+  el.legendIsaDone.textContent = isaDone;
+  el.dashboardProgressCircle.innerHTML = `<span>${ringPct}%</span><span class="dual-ring-scope">${todayTasks.length > 0 ? 'Hoje' : 'Geral'}</span>`;
+
+  // SVG Ring circumference for r=33: 2 * PI * 33 ≈ 207.35
+  const circ = 207.35;
+  if (ringTotal > 0) {
+    const gusLen = (gusDone / ringTotal) * circ;
+    const isaLen = (isaDone / ringTotal) * circ;
+    el.svgRingGus.style.opacity = gusDone > 0 ? '1' : '0';
+    el.svgRingGus.style.strokeDasharray = `${gusLen} ${circ}`;
+    el.svgRingGus.style.strokeDashoffset = '0';
+
+    el.svgRingIsa.style.opacity = isaDone > 0 ? '1' : '0';
+    el.svgRingIsa.style.strokeDasharray = `${isaLen} ${circ}`;
+    el.svgRingIsa.style.strokeDashoffset = `${-gusLen}`;
+  } else {
+    el.svgRingGus.style.opacity = '0';
+    el.svgRingIsa.style.opacity = '0';
+    el.svgRingGus.style.strokeDasharray = `0 ${circ}`;
+    el.svgRingIsa.style.strokeDasharray = `0 ${circ}`;
+  }
+
+  if (todayTasks.length > 0) {
+    const pendingToday = todayTasks.filter(t => !t.completed).length;
+    el.dashboardProgressSub.textContent = pendingToday > 0
+      ? `${pendingToday} tarefa${pendingToday === 1 ? '' : 's'} com prazo até hoje`
+      : 'Todas as tarefas de hoje concluídas! 🎉';
+  } else {
+    const generalPending = allTasks.filter(t => !t.completed).length;
+    el.dashboardProgressSub.textContent = generalPending > 0
+      ? `${generalPending} tarefa${generalPending === 1 ? '' : 's'} pendente${generalPending === 1 ? '' : 's'} no total`
+      : 'Nenhuma tarefa pendente! Aproveitem! 🌸';
+  }
+
+  // 3-Person Quick Breakdown Cards (Gustavo, Isabella, Ambos)
+  const ownersConfig = [
+    { key: 'Gus', label: 'GUSTAVO', cls: 'gus', avatar: GUS_AVATAR_SVG },
+    { key: 'Isa', label: 'ISABELLA', cls: 'isa', avatar: ISA_AVATAR_SVG },
+    { key: 'Shared', label: 'AMBOS', cls: 'shared', avatar: AMBOS_AVATAR_SVG }
+  ];
+
+  el.dashboardCoupleCards.innerHTML = ownersConfig.map(o => {
+    const list = allTasks.filter(t => (t.owner || 'Shared') === o.key);
+    const done = list.filter(t => t.completed).length;
+    const total = list.length;
+    const oPct = total > 0 ? Math.round((done / total) * 100) : 0;
+    return `
+      <button type="button" class="couple-mini-card ${o.cls}" data-jump-owner="${o.key}">
+        <div class="couple-mini-top">
+          <div class="couple-mini-avatar">${o.avatar}</div>
+          <div>
+            <div class="couple-mini-name">${o.label} ${total > 0 && done === total ? '🎉' : ''}</div>
+            <div class="couple-mini-count">${done} de ${total} concluída${total === 1 ? '' : 's'}</div>
+          </div>
+        </div>
+        <div class="couple-mini-bar-track">
+          <div class="couple-mini-bar-fill" style="width: ${oPct}%"></div>
+        </div>
+      </button>
+    `;
+  }).join('');
+
+  el.dashboardCoupleCards.querySelectorAll('[data-jump-owner]').forEach(card => {
+    card.addEventListener('click', () => {
+      appState.activeTab = 'tasks';
+      appState.activeFilter = 'all';
+      appState.activeListId = 'all';
+      appState.ownerFilter = card.getAttribute('data-jump-owner');
+      appState.tasksViewMode = 'board';
+      renderApp();
+    });
+  });
+
+  // Latest Mural Note Preview (prioritize pinned, then latest)
+  const notes = [...(data.notes || [])];
+  if (notes.length > 0) {
+    const pinned = notes.filter(n => n.pinned);
+    const featured = pinned.length > 0
+      ? pinned.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0]
+      : notes.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
+    el.dashboardMuralPreviewContainer.style.display = 'block';
+    el.dashboardMuralAuthor.textContent = `De ${ownerDisplayName(featured.user)}`;
+    el.dashboardMuralText.textContent = `"${featured.text}"`;
+  } else {
+    el.dashboardMuralPreviewContainer.style.display = 'none';
+  }
+
+  // Urgent / Overdue Highlight Tasks
+  const urgentTasks = allTasks.filter(t => {
+    if (t.completed || !t.deadline) return false;
+    const d = new Date(t.deadline);
+    return d < now || (d - now) / (1000 * 60 * 60) <= 12;
+  }).sort((a, b) => new Date(a.deadline) - new Date(b.deadline));
+
+  if (urgentTasks.length > 0) {
+    el.dashboardUrgentContainer.style.display = 'flex';
+    el.dashboardUrgentList.innerHTML = urgentTasks.slice(0, 4).map(task => {
+      const d = new Date(task.deadline);
+      const isOverdue = d < now;
+      const timeStr = d.toLocaleString('pt-BR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+      const ownerCls = task.owner === 'Gus' ? 'gus' : task.owner === 'Isa' ? 'isa' : 'shared';
+
+      return `
+        <div class="urgent-card ${isOverdue ? 'overdue' : 'soon'}" data-task-id="${task.id}">
+          <button type="button" class="tactile-checkbox urgent-quick-check" data-task-id="${task.id}" aria-label="Concluir ${escapeHTML(task.title)}"></button>
+          <div class="urgent-card-body" data-open-task="${task.id}">
+            <div class="urgent-card-meta">
+              <span class="urgent-badge ${isOverdue ? '' : 'soon'}">${isOverdue ? '⚠️ ATRASADA' : '⏳ URGENTE'}</span>
+              <span class="panel-sub">${timeStr}</span>
+            </div>
+            <div class="urgent-card-title">${escapeHTML(task.title)}</div>
+          </div>
+          <span class="owner-pill ${ownerCls}">${ownerShortName(task.owner)}</span>
+        </div>
+      `;
+    }).join('');
+
+    el.dashboardUrgentList.querySelectorAll('.urgent-quick-check').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        toggleTaskCompletion(btn.getAttribute('data-task-id'), true);
+      });
+    });
+
+    el.dashboardUrgentList.querySelectorAll('[data-open-task]').forEach(body => {
+      body.addEventListener('click', () => {
+        const taskId = body.getAttribute('data-open-task');
+        const task = data.tasks.find(t => t.id === taskId);
+        if (task) {
+          appState.activeTab = 'tasks';
+          appState.activeListId = task.listId;
+          appState.activeFilter = 'list';
+          appState.ownerFilter = 'all';
+          appState.expandedTaskId = taskId;
+          renderApp();
+        }
+      });
+    });
+  } else {
+    el.dashboardUrgentContainer.style.display = 'none';
+  }
+
+  // My Lists Grid
+  el.dashboardListsGrid.innerHTML = data.lists.map(list => {
+    const listAll = allTasks.filter(t => t.listId === list.id);
+    const listDone = listAll.filter(t => t.completed).length;
+    const listPending = listAll.length - listDone;
+    const lPct = listAll.length > 0 ? Math.round((listDone / listAll.length) * 100) : 0;
+    const ownerCls = list.owner === 'Gus' ? 'gus' : list.owner === 'Isa' ? 'isa' : 'shared';
+
+    return `
+      <div class="dashboard-list-card" data-list-id="${list.id}">
+        <div class="dashboard-list-top">
+          <div class="list-card-icon ${ownerCls}">${getSmartListIcon(list.name)}</div>
+          <div>
+            <div class="list-card-name">${escapeHTML(list.name)}</div>
+            <div class="list-card-sub">${listPending === 0 ? 'Tudo feito! ✨' : `${listPending} pendente${listPending === 1 ? '' : 's'}`} · ${lPct}%</div>
+          </div>
+        </div>
+        <div class="list-card-bar">
+          <div class="list-card-bar-fill" style="width: ${lPct}%"></div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  el.dashboardListsGrid.querySelectorAll('.dashboard-list-card').forEach(card => {
+    card.addEventListener('click', () => {
+      appState.activeTab = 'tasks';
+      appState.activeListId = card.getAttribute('data-list-id');
+      appState.activeFilter = 'list';
+      appState.ownerFilter = 'all';
+      renderApp();
+    });
+  });
+}
+
+// ============================================================================
+// VIEW 1: TAREFAS (COUPLE BOARD + UNIFIED LIST)
+// ============================================================================
+
+function getBaseScopeTasks() {
+  const data = appState.dbData;
+  let tasks = [...data.tasks];
+  let title = 'Todas as Tarefas';
+  let listOwner = 'Shared';
+
+  if (appState.activeFilter === 'today') {
+    title = 'Com Prazos Limites';
+    tasks = tasks.filter(t => t.deadline);
+  } else if (appState.activeFilter === 'date' && appState.selectedDate) {
+    const d = appState.selectedDate;
+    title = `Tarefas · ${d.toLocaleDateString('pt-BR')}`;
+    tasks = tasks.filter(t => {
+      if (!t.deadline) return false;
+      const td = new Date(t.deadline);
+      return td.getFullYear() === d.getFullYear() &&
+             td.getMonth() === d.getMonth() &&
+             td.getDate() === d.getDate();
+    });
+  } else if (appState.activeFilter === 'list') {
+    const activeList = data.lists.find(l => l.id === appState.activeListId);
+    if (activeList) {
+      title = activeList.name;
+      listOwner = activeList.owner || 'Shared';
+      tasks = tasks.filter(t => t.listId === activeList.id);
+    } else {
+      appState.activeFilter = 'all';
+      appState.activeListId = 'all';
+    }
+  }
+
+  return { tasks, title, listOwner };
+}
+
+function applyTaskFiltersAndSort(baseTasks) {
+  let result = [...baseTasks];
+
+  // Quick filter
+  if (appState.quickFilter === 'mine') {
+    result = result.filter(t => t.owner === appState.currentUser);
+  } else if (appState.quickFilter === 'urgent') {
+    const now = new Date();
+    result = result.filter(t => {
+      if (!t.deadline || t.completed) return false;
+      const d = new Date(t.deadline);
+      return d < now || (d - now) / (1000 * 60 * 60) <= 12;
+    });
+  }
+
+  // Search query (searches title, subtasks, and comments)
+  const q = appState.searchQuery.trim().toLowerCase();
+  if (q) {
+    result = result.filter(t => {
+      if ((t.title || '').toLowerCase().includes(q)) return true;
+      if ((t.subtasks || []).some(st => (st.title || '').toLowerCase().includes(q))) return true;
+      if ((t.comments || []).some(c => (c.text || '').toLowerCase().includes(q))) return true;
+      return false;
+    });
+  }
+
+  // Sort
+  const prioWeight = { High: 3, Medium: 2, Low: 1 };
+  result.sort((a, b) => {
+    if (appState.sortBy === 'deadline') {
+      if (!a.deadline && !b.deadline) return new Date(b.createdAt) - new Date(a.createdAt);
+      if (!a.deadline) return 1;
+      if (!b.deadline) return -1;
+      return new Date(a.deadline) - new Date(b.deadline);
+    }
+    if (appState.sortBy === 'priority') {
+      const diff = (prioWeight[b.priority] || 2) - (prioWeight[a.priority] || 2);
+      if (diff !== 0) return diff;
+      return new Date(b.createdAt) - new Date(a.createdAt);
+    }
+    if (appState.sortBy === 'alpha') {
+      return (a.title || '').localeCompare(b.title || '', 'pt-BR');
+    }
+    return new Date(b.createdAt) - new Date(a.createdAt);
+  });
+
+  return result;
+}
+
+function renderTasks() {
+  const { tasks: scopeTasks, title, listOwner } = getBaseScopeTasks();
+
+  // Header title & owner badge
+  el.activeListTitle.textContent = title;
+  el.activeListOwnerBadge.style.display = 'inline-block';
+  if (listOwner === 'Gus') {
+    el.activeListOwnerBadge.textContent = 'Lista de Gustavo';
+    el.activeListOwnerBadge.className = 'owner-pill gus';
+  } else if (listOwner === 'Isa') {
+    el.activeListOwnerBadge.textContent = 'Lista de Isabella';
+    el.activeListOwnerBadge.className = 'owner-pill isa';
+  } else {
+    el.activeListOwnerBadge.textContent = appState.activeFilter === 'list' ? 'Lista Compartilhada' : 'Casal';
+    el.activeListOwnerBadge.className = 'owner-pill shared';
+  }
+
+  // Active Date Banner
+  if (appState.activeFilter === 'date' && appState.selectedDate) {
+    el.activeDateBanner.style.display = 'flex';
+    el.activeDateBannerText.textContent = `📅 Filtrando tarefas de ${appState.selectedDate.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })}`;
+  } else {
+    el.activeDateBanner.style.display = 'none';
+  }
+
+  // Sync toolbar UI states
+  el.btnViewModeBoard.classList.toggle('active', appState.tasksViewMode === 'board');
+  el.btnViewModeList.classList.toggle('active', appState.tasksViewMode === 'list');
+  el.selectSortTasks.value = appState.sortBy;
+  el.btnClearSearch.style.display = appState.searchQuery ? 'inline-flex' : 'none';
+
+  document.querySelectorAll('.owner-filter-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.getAttribute('data-owner-filter') === appState.ownerFilter);
+  });
+  document.querySelectorAll('.status-filter-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.getAttribute('data-status-filter') === appState.statusFilter);
+  });
+
+  el.btnFilterMyTasks.classList.toggle('active', appState.quickFilter === 'mine');
+  el.btnFilterUrgentTasks.classList.toggle('active', appState.quickFilter === 'urgent');
+  const hasAnyFilter = appState.quickFilter !== 'none' || appState.ownerFilter !== 'all' ||
+                       appState.statusFilter !== 'all' || appState.searchQuery !== '' ||
+                       appState.activeFilter === 'date';
+  el.btnClearQuickFilters.style.display = hasAnyFilter ? 'inline-flex' : 'none';
+
+  // Local mode restore button visibility
+  if (el.btnRestoreDefaults) {
+    el.btnRestoreDefaults.style.display = db.isLocalMode() ? 'inline-flex' : 'none';
+  }
+
+  // Mobile sticky bottom quick-add bar
+  const isMobile = window.innerWidth <= 860;
+  if (el.stickyTaskAddBar) {
+    el.stickyTaskAddBar.classList.toggle('active', isMobile && appState.tasksViewMode === 'list');
+  }
+
+  // Overall progress strip
+  const filteredTasks = applyTaskFiltersAndSort(scopeTasks);
+  const doneCount = scopeTasks.filter(t => t.completed).length;
+  const totalCount = scopeTasks.length;
+  const pct = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
+
+  el.progressText.textContent = `${doneCount}/${totalCount} (${pct}%)`;
+  el.progressBarFill.style.width = `${pct}%`;
+  el.tasksMotivation.textContent = getMotivationMessage(doneCount, totalCount);
+
+  // Switch between Couple Board Mode and Unified List Mode
+  if (appState.tasksViewMode === 'board') {
+    el.coupleBoardView.style.display = 'grid';
+    el.unifiedListView.style.display = 'none';
+    renderCoupleBoard(filteredTasks, scopeTasks);
+  } else {
+    el.coupleBoardView.style.display = 'none';
+    el.unifiedListView.style.display = 'block';
+    renderUnifiedList(filteredTasks);
+  }
+}
+
+function renderCoupleBoard(filteredTasks, scopeTasks) {
+  const owners = [
+    { key: 'Gus', title: 'GUSTAVO', cls: 'owner-gus', avatar: GUS_AVATAR_SVG, placeholder: 'Ex: Tirar o lixo...' },
+    { key: 'Isa', title: 'ISABELLA', cls: 'owner-isa', avatar: ISA_AVATAR_SVG, placeholder: 'Ex: Organizar cadernos...' },
+    { key: 'Shared', title: 'AMBOS', cls: 'owner-shared', avatar: AMBOS_AVATAR_SVG, placeholder: 'Ex: Passear com o Bruce...' }
+  ];
+
+  const visibleOwners = appState.ownerFilter === 'all'
+    ? owners
+    : owners.filter(o => o.key === appState.ownerFilter);
+
+  el.coupleBoardView.classList.toggle('single-owner', visibleOwners.length === 1);
+
+  el.coupleBoardView.innerHTML = visibleOwners.map(o => {
+    const allOwnerScope = scopeTasks.filter(t => (t.owner || 'Shared') === o.key);
+    const doneOwner = allOwnerScope.filter(t => t.completed).length;
+    const totalOwner = allOwnerScope.length;
+    const ownerPct = totalOwner > 0 ? Math.round((doneOwner / totalOwner) * 100) : 0;
+
+    // Apply status filter to tasks shown inside card
+    const cardTasks = filteredTasks
+      .filter(t => (t.owner || 'Shared') === o.key)
+      .filter(t => {
+        if (appState.statusFilter === 'pending') return !t.completed;
+        if (appState.statusFilter === 'done') return t.completed;
+        return true;
+      });
+
+    // Pending first, completed at bottom inside each card for ultra-clean scanning
+    const orderedCardTasks = [
+      ...cardTasks.filter(t => !t.completed),
+      ...cardTasks.filter(t => t.completed)
+    ];
+
+    const isFormOpen = appState.openInlineForms[o.key];
+    const selectedEmoji = appState.selectedInlineEmojis[o.key] || EMOJI_PRESETS[o.key][0];
+
+    const emojiButtonsHtml = EMOJI_PRESETS[o.key].map(em => `
+      <button type="button" class="emoji-opt ${selectedEmoji === em ? 'selected' : ''}" data-inline-emoji="${em}" data-owner="${o.key}">${em}</button>
+    `).join('');
+
+    let emptyMsg = 'Nenhuma tarefa cadastrada. Clique no "+" acima!';
+    if (appState.searchQuery) emptyMsg = 'Nenhuma tarefa encontrada nessa busca.';
+    else if (appState.statusFilter === 'pending') emptyMsg = 'Nenhuma tarefa pendente por aqui! 🎉';
+    else if (appState.statusFilter === 'done') emptyMsg = 'Nenhuma tarefa concluída ainda.';
+
+    const itemsHtml = orderedCardTasks.length > 0
+      ? orderedCardTasks.map(t => renderTaskItemHTML(t, true)).join('')
+      : `<li class="board-empty-box">${emptyMsg}</li>`;
+
+    return `
+      <section class="couple-card ${o.cls}" data-drop-owner="${o.key}">
+        <div class="couple-card-header">
+          <div class="couple-card-identity">
+            <div class="couple-card-avatar">${o.avatar}</div>
+            <div>
+              <div class="couple-card-title-row">
+                <h2 class="couple-card-title">${o.title}</h2>
+                ${totalOwner > 0 && doneOwner === totalOwner ? '<span class="badge-100">100% 🎉</span>' : ''}
+              </div>
+              <p class="couple-card-counter">${doneOwner} de ${totalOwner} concluída${totalOwner === 1 ? '' : 's'}</p>
+            </div>
+          </div>
+          <button type="button" class="btn-card-add" data-toggle-inline="${o.key}" title="Adicionar tarefa para ${o.title}" aria-label="Adicionar tarefa para ${o.title}">
+            ${isFormOpen ? '−' : '+'}
+          </button>
+        </div>
+
+        <div class="couple-card-progress">
+          <div class="couple-card-progress-fill" style="width: ${ownerPct}%"></div>
+        </div>
+
+        <form class="inline-add-form ${isFormOpen ? '' : 'hidden'}" data-inline-form="${o.key}" onsubmit="return false;">
+          <label class="inline-add-label">Nova tarefa para ${ownerDisplayName(o.key)}</label>
+          <div class="inline-add-row">
+            <input type="text" class="inline-add-input" data-inline-input="${o.key}" maxlength="100" placeholder="${o.placeholder}" autocomplete="off">
+            <button type="submit" class="btn-inline-save">Salvar</button>
+          </div>
+          <div class="inline-extras-row">
+            <select class="inline-mini-select" data-inline-priority="${o.key}" aria-label="Prioridade">
+              <option value="Medium">🟡 Média</option>
+              <option value="High">🔴 Alta</option>
+              <option value="Low">🟢 Baixa</option>
+            </select>
+            <input type="datetime-local" class="inline-mini-date" data-inline-deadline="${o.key}" aria-label="Prazo">
+          </div>
+          <div class="emoji-picker-row">
+            <span class="emoji-picker-label">Ícone:</span>
+            ${emojiButtonsHtml}
+          </div>
+        </form>
+
+        <ul class="couple-task-list">
+          ${itemsHtml}
+        </ul>
+      </section>
+    `;
+  }).join('');
+
+  bindCoupleBoardListeners();
+  bindTaskItemListeners(el.coupleBoardView);
+}
+
+function bindCoupleBoardListeners() {
+  // Toggle inline add forms
+  el.coupleBoardView.querySelectorAll('[data-toggle-inline]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const owner = btn.getAttribute('data-toggle-inline');
+      appState.openInlineForms[owner] = !appState.openInlineForms[owner];
+      renderTasks();
+      if (appState.openInlineForms[owner]) {
+        const inp = el.coupleBoardView.querySelector(`[data-inline-input="${owner}"]`);
+        if (inp) setTimeout(() => inp.focus(), 30);
+      }
+    });
+  });
+
+  // Inline emoji selection
+  el.coupleBoardView.querySelectorAll('[data-inline-emoji]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const owner = btn.getAttribute('data-owner');
+      const emoji = btn.getAttribute('data-inline-emoji');
+      appState.selectedInlineEmojis[owner] = emoji;
+      btn.parentElement.querySelectorAll('.emoji-opt').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+    });
+  });
+
+  // Inline add task submit
+  el.coupleBoardView.querySelectorAll('[data-inline-form]').forEach(form => {
+    form.addEventListener('submit', e => {
+      e.preventDefault();
+      const owner = form.getAttribute('data-inline-form');
+      const input = form.querySelector(`[data-inline-input="${owner}"]`);
+      const prioSel = form.querySelector(`[data-inline-priority="${owner}"]`);
+      const dateInp = form.querySelector(`[data-inline-deadline="${owner}"]`);
+      const title = (input.value || '').trim();
+      if (!title) {
+        showToast('Digite o nome da tarefa primeiro ✍️');
+        input.focus();
+        return;
+      }
+
+      const autoSvg = detectSvgKeyFromTitle(title);
+      createTask({
+        title,
+        owner,
+        priority: prioSel ? prioSel.value : 'Medium',
+        deadline: dateInp && dateInp.value ? new Date(dateInp.value).toISOString() : null,
+        recurrence: 'none',
+        emoji: appState.selectedInlineEmojis[owner] || '✨',
+        svgKey: autoSvg
+      });
+
+      appState.openInlineForms[owner] = false;
+    });
+  });
+
+  // Drag & Drop between Owner Cards
+  el.coupleBoardView.querySelectorAll('[data-drop-owner]').forEach(card => {
+    card.addEventListener('dragover', e => {
+      e.preventDefault();
+      card.classList.add('drag-over');
+    });
+    card.addEventListener('dragleave', e => {
+      if (!card.contains(e.relatedTarget)) {
+        card.classList.remove('drag-over');
+      }
+    });
+    card.addEventListener('drop', e => {
+      e.preventDefault();
+      card.classList.remove('drag-over');
+      const targetOwner = card.getAttribute('data-drop-owner');
+      const taskId = appState.draggedTaskId || e.dataTransfer.getData('text/plain');
+      if (taskId && targetOwner) {
+        reassignTaskOwner(taskId, targetOwner);
+      }
+      appState.draggedTaskId = null;
+    });
+  });
+}
+
+function renderUnifiedList(filteredTasks) {
+  let listTasks = filteredTasks;
+  if (appState.ownerFilter !== 'all') {
+    listTasks = listTasks.filter(t => (t.owner || 'Shared') === appState.ownerFilter);
+  }
+  if (appState.statusFilter === 'pending') {
+    listTasks = listTasks.filter(t => !t.completed);
+  } else if (appState.statusFilter === 'done') {
+    listTasks = listTasks.filter(t => t.completed);
+  }
+
+  const todoList = listTasks.filter(t => !t.completed);
+  const doneList = listTasks.filter(t => t.completed);
+
+  el.todoCount.textContent = todoList.length;
+  el.completedCount.textContent = doneList.length;
+
+  if (listTasks.length === 0) {
+    el.emptyStateView.style.display = 'flex';
+    el.todoSection.style.display = 'none';
+    el.completedSection.style.display = 'none';
+    return;
+  }
+
+  el.emptyStateView.style.display = 'none';
+  el.todoSection.style.display = todoList.length > 0 ? 'flex' : 'none';
+  el.completedSection.style.display = doneList.length > 0 ? 'flex' : 'none';
+
+  el.todoTaskList.innerHTML = todoList.map(t => renderTaskItemHTML(t, false)).join('');
+  el.completedTaskList.innerHTML = doneList.map(t => renderTaskItemHTML(t, false)).join('');
+
+  bindTaskItemListeners(el.unifiedListView);
+}
+
+function renderTaskItemHTML(task, isBoardMode) {
+  const isCompleted = !!task.completed;
+  const isExpanded = task.id === appState.expandedTaskId;
+  const deadlineInfo = formatDeadline(task.deadline);
+  const subtasks = task.subtasks || [];
+  const comments = task.comments || [];
+  const subDone = subtasks.filter(s => s.completed).length;
+
+  const ownerCls = task.owner === 'Gus' ? 'gus' : task.owner === 'Isa' ? 'isa' : 'shared';
+  const listObj = appState.dbData.lists.find(l => l.id === task.listId);
+  const showListPill = appState.activeFilter !== 'list' && listObj && appState.dbData.lists.length > 1;
+
+  // Compact metadata chips
+  const chips = [];
+  if (!isBoardMode) {
+    chips.push(`<span class="meta-chip owner-${ownerCls}">${ownerDisplayName(task.owner)}</span>`);
+  }
+  if (task.priority === 'High') {
+    chips.push(`<span class="meta-chip prio-high">🔴 Alta</span>`);
+  } else if (task.priority === 'Low') {
+    chips.push(`<span class="meta-chip prio-low">🟢 Baixa</span>`);
+  }
+  if (deadlineInfo.text) {
+    chips.push(`<span class="meta-chip ${deadlineInfo.className}">${deadlineInfo.text}</span>`);
+  }
+  if (task.recurrence && task.recurrence !== 'none') {
+    const recLabels = { daily: 'Diária', weekly: 'Semanal', monthly: 'Mensal' };
+    chips.push(`<span class="meta-chip">🔁 ${recLabels[task.recurrence] || task.recurrence}</span>`);
+  }
+  if (subtasks.length > 0) {
+    chips.push(`<span class="meta-chip">☑ ${subDone}/${subtasks.length}</span>`);
+  }
+  if (comments.length > 0) {
+    chips.push(`<span class="meta-chip">💬 ${comments.length}</span>`);
+  }
+  if (showListPill) {
+    chips.push(`<span class="meta-chip">${getSmartListIcon(listObj.name)} ${escapeHTML(listObj.name)}</span>`);
+  }
+  if (isCompleted && task.completedBy) {
+    chips.push(`<span class="meta-chip">✓ por ${ownerDisplayName(task.completedBy)}</span>`);
+  }
+
+  // Expanded details panel
+  let expandedHtml = '';
+  if (isExpanded) {
+    const listOptions = appState.dbData.lists.map(l =>
+      `<option value="${l.id}" ${l.id === task.listId ? 'selected' : ''}>${escapeHTML(l.name)}</option>`
+    ).join('');
+
+    const subtasksHtml = subtasks.length > 0
+      ? subtasks.map(st => `
+          <div class="subtask-row ${st.completed ? 'done' : ''}">
+            <input type="checkbox" class="subtask-checkbox" data-subtask-id="${st.id}" ${st.completed ? 'checked' : ''}>
+            <span class="subtask-label">${escapeHTML(st.title)}</span>
+            <button type="button" class="task-mini-btn delete btn-delete-subtask" data-subtask-id="${st.id}" title="Remover item">✕</button>
+          </div>
+        `).join('')
+      : '<p class="panel-sub" style="font-style: italic;">Nenhum item no checklist.</p>';
+
+    const commentsHtml = comments.length > 0
+      ? comments.map(c => {
+          const tStr = new Date(c.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+          return `
+            <div class="comment-bubble">
+              <span><strong>${ownerDisplayName(c.user)}:</strong> ${escapeHTML(c.text)}</span>
+              <span class="comment-time">${tStr}</span>
+            </div>
+          `;
+        }).join('')
+      : '<p class="panel-sub" style="font-style: italic;">Sem comentários ainda.</p>';
+
+    const emojiChoices = ALL_EMOJIS.slice(0, 12).map(em => `
+      <button type="button" class="emoji-opt ${task.emoji === em && !task.svgKey ? 'selected' : ''}" data-change-task-emoji="${em}">${em}</button>
+    `).join('');
+
+    expandedHtml = `
+      <div class="task-expanded-panel">
+        <div class="expanded-title-edit-row">
+          <input type="text" class="input-edit-task-title" value="${escapeHTML(task.title)}" aria-label="Editar título da tarefa">
+          <button type="button" class="inline-sub-btn btn-save-task-title">Salvar título</button>
+        </div>
+
+        <div class="expanded-settings-grid">
+          <div class="expanded-field">
+            <label>Responsável</label>
+            <select class="select-task-card-owner">
+              <option value="Shared" ${task.owner === 'Shared' || !task.owner ? 'selected' : ''}>💛 Ambos</option>
+              <option value="Gus" ${task.owner === 'Gus' ? 'selected' : ''}>👦🏻 Gustavo</option>
+              <option value="Isa" ${task.owner === 'Isa' ? 'selected' : ''}>👩🏻 Isabella</option>
+            </select>
+          </div>
+          <div class="expanded-field">
+            <label>Prioridade</label>
+            <select class="select-task-card-priority">
+              <option value="High" ${task.priority === 'High' ? 'selected' : ''}>🔴 Alta</option>
+              <option value="Medium" ${task.priority === 'Medium' || !task.priority ? 'selected' : ''}>🟡 Média</option>
+              <option value="Low" ${task.priority === 'Low' ? 'selected' : ''}>🟢 Baixa</option>
+            </select>
+          </div>
+          <div class="expanded-field">
+            <label>Repetir</label>
+            <select class="select-task-card-recurrence">
+              <option value="none" ${!task.recurrence || task.recurrence === 'none' ? 'selected' : ''}>Não repetir</option>
+              <option value="daily" ${task.recurrence === 'daily' ? 'selected' : ''}>Diariamente</option>
+              <option value="weekly" ${task.recurrence === 'weekly' ? 'selected' : ''}>Semanalmente</option>
+              <option value="monthly" ${task.recurrence === 'monthly' ? 'selected' : ''}>Mensalmente</option>
+            </select>
+          </div>
+          <div class="expanded-field">
+            <label>Lista</label>
+            <select class="select-task-card-list">${listOptions}</select>
+          </div>
+          <div class="expanded-field">
+            <label>Prazo Limite</label>
+            <input type="datetime-local" class="input-task-card-deadline" value="${toLocalDatetimeInputValue(task.deadline)}">
+          </div>
+        </div>
+
+        <div class="emoji-picker-row">
+          <span class="emoji-picker-label">Ícone:</span>
+          ${emojiChoices}
+        </div>
+
+        <div class="expanded-sub-block">
+          <div class="expanded-block-title">
+            <span>☑ Checklist de Sub-tarefas</span>
+            <span>${subDone}/${subtasks.length}</span>
+          </div>
+          ${subtasksHtml}
+          <div class="inline-sub-form">
+            <input type="text" class="inline-sub-input input-subtask-add" placeholder="Adicionar sub-tarefa...">
+            <button type="button" class="inline-sub-btn btn-subtask-add-submit">+</button>
+          </div>
+        </div>
+
+        <div class="expanded-sub-block">
+          <div class="expanded-block-title">
+            <span>💬 Chat / Comentários</span>
+            <span>${comments.length}</span>
+          </div>
+          ${commentsHtml}
+          <div class="inline-sub-form">
+            <input type="text" class="inline-sub-input input-comment" placeholder="Escrever recado nessa tarefa...">
+            <button type="button" class="inline-sub-btn btn-comment-send">Enviar</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  return `
+    <li class="task-item ${isCompleted ? 'completed' : ''} ${!isBoardMode ? `owner-ribbon-${ownerCls}` : ''}"
+        data-task-id="${task.id}"
+        draggable="${isBoardMode && !isExpanded ? 'true' : 'false'}">
+      <div class="task-item-main">
+        <button type="button"
+                class="tactile-checkbox ${isCompleted ? 'checked' : ''}"
+                role="checkbox"
+                aria-checked="${isCompleted}"
+                aria-label="Marcar tarefa ${escapeHTML(task.title)}">
+          ${isCompleted ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>' : ''}
+        </button>
+
+        <div class="task-item-content" title="Clique para ver detalhes, sub-tarefas e comentários">
+          <div class="task-item-title">${escapeHTML(task.title)}</div>
+          ${chips.length > 0 ? `<div class="task-meta-chips">${chips.join('')}</div>` : ''}
+        </div>
+
+        <div class="task-item-right">
+          ${renderTaskIcon(task)}
+          <button type="button" class="task-mini-btn btn-expand-task" title="Detalhes" aria-label="Expandir detalhes">
+            ${isExpanded ? '▴' : '▾'}
+          </button>
+          <button type="button" class="task-mini-btn delete btn-delete-task" title="Remover tarefa" aria-label="Remover tarefa ${escapeHTML(task.title)}">✕</button>
+        </div>
+      </div>
+      ${expandedHtml}
+    </li>
+  `;
+}
+
+function bindTaskItemListeners(container) {
+  // Drag start for Board Mode
+  container.querySelectorAll('.task-item[draggable="true"]').forEach(item => {
+    item.addEventListener('dragstart', e => {
+      const taskId = item.getAttribute('data-task-id');
+      appState.draggedTaskId = taskId;
+      e.dataTransfer.setData('text/plain', taskId);
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    item.addEventListener('dragend', () => {
+      appState.draggedTaskId = null;
+      document.querySelectorAll('.couple-card.drag-over').forEach(c => c.classList.remove('drag-over'));
+    });
+  });
+
+  // Tactile Checkbox Toggle
+  container.querySelectorAll('.task-item .tactile-checkbox').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const item = btn.closest('.task-item');
+      const taskId = item.getAttribute('data-task-id');
+      const currentlyDone = btn.classList.contains('checked');
+      toggleTaskCompletion(taskId, !currentlyDone);
+    });
+  });
+
+  // Expand / Collapse on content click or chevron click
+  container.querySelectorAll('.task-item-content, .btn-expand-task').forEach(trigger => {
+    trigger.addEventListener('click', e => {
+      e.stopPropagation();
+      const item = trigger.closest('.task-item');
+      const taskId = item.getAttribute('data-task-id');
+      appState.expandedTaskId = appState.expandedTaskId === taskId ? null : taskId;
+      renderTasks();
+    });
+  });
+
+  // Delete Task
+  container.querySelectorAll('.btn-delete-task').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const taskId = btn.closest('.task-item').getAttribute('data-task-id');
+      handleDeleteTask(taskId);
+    });
+  });
+
+  // Expanded panel controls
+  container.querySelectorAll('.task-expanded-panel').forEach(panel => {
+    panel.addEventListener('click', e => e.stopPropagation());
+    const taskId = panel.closest('.task-item').getAttribute('data-task-id');
+
+    // Inline Title Save
+    const titleInput = panel.querySelector('.input-edit-task-title');
+    const saveTitleBtn = panel.querySelector('.btn-save-task-title');
+    const commitTitle = () => {
+      const val = (titleInput.value || '').trim();
+      if (val) updateTaskField(taskId, 'title', val, 'Título atualizado ✏️');
+    };
+    if (saveTitleBtn) saveTitleBtn.addEventListener('click', commitTitle);
+    if (titleInput) {
+      titleInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); commitTitle(); }
+      });
+    }
+
+    // Settings selects & deadline
+    const selOwner = panel.querySelector('.select-task-card-owner');
+    const selPrio = panel.querySelector('.select-task-card-priority');
+    const selRec = panel.querySelector('.select-task-card-recurrence');
+    const selList = panel.querySelector('.select-task-card-list');
+    const inpDead = panel.querySelector('.input-task-card-deadline');
+
+    if (selOwner) selOwner.addEventListener('change', () => updateTaskField(taskId, 'owner', selOwner.value));
+    if (selPrio) selPrio.addEventListener('change', () => updateTaskField(taskId, 'priority', selPrio.value));
+    if (selRec) selRec.addEventListener('change', () => updateTaskField(taskId, 'recurrence', selRec.value));
+    if (selList) selList.addEventListener('change', () => updateTaskField(taskId, 'listId', selList.value, 'Tarefa movida de lista 📁'));
+    if (inpDead) {
+      inpDead.addEventListener('change', () => {
+        const iso = inpDead.value ? new Date(inpDead.value).toISOString() : null;
+        updateTaskField(taskId, 'deadline', iso);
+      });
+    }
+
+    // Change emoji
+    panel.querySelectorAll('[data-change-task-emoji]').forEach(eb => {
+      eb.addEventListener('click', () => {
+        const data = appState.dbData;
+        const t = data.tasks.find(x => x.id === taskId);
+        if (!t) return;
+        t.emoji = eb.getAttribute('data-change-task-emoji');
+        t.svgKey = null;
+        saveDataAndRender(data);
+      });
+    });
+
+    // Subtasks
+    panel.querySelectorAll('.subtask-checkbox').forEach(chk => {
+      chk.addEventListener('change', () => {
+        toggleSubtaskCompletion(taskId, chk.getAttribute('data-subtask-id'), chk.checked);
+      });
+    });
+    panel.querySelectorAll('.btn-delete-subtask').forEach(btn => {
+      btn.addEventListener('click', () => {
+        handleDeleteSubtask(taskId, btn.getAttribute('data-subtask-id'));
+      });
+    });
+
+    const subInput = panel.querySelector('.input-subtask-add');
+    const subBtn = panel.querySelector('.btn-subtask-add-submit');
+    const addSub = () => {
+      const val = (subInput.value || '').trim();
+      if (val) handleAddSubtask(taskId, val);
+    };
+    if (subBtn) subBtn.addEventListener('click', addSub);
+    if (subInput) subInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addSub(); } });
+
+    // Comments
+    const comInput = panel.querySelector('.input-comment');
+    const comBtn = panel.querySelector('.btn-comment-send');
+    const addCom = () => {
+      const val = (comInput.value || '').trim();
+      if (val) handleAddComment(taskId, val);
+    };
+    if (comBtn) comBtn.addEventListener('click', addCom);
+    if (comInput) comInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addCom(); } });
+  });
+}
+
+// ============================================================================
+// TASK CRUD ACTIONS
+// ============================================================================
+
+function getDefaultTargetListId() {
+  const data = appState.dbData;
+  if (appState.activeFilter === 'list' && appState.activeListId) {
+    if (data.lists.some(l => l.id === appState.activeListId)) {
+      return appState.activeListId;
+    }
+  }
+  return data.lists.length > 0 ? data.lists[0].id : 'l-geral';
+}
+
+function createTask({ title, owner = 'Shared', priority = 'Medium', deadline = null, recurrence = 'none', emoji = null, svgKey = null, listId = null, projectId = null }) {
+  const data = appState.dbData;
+  const targetListId = listId || getDefaultTargetListId();
+  const resolvedSvg = svgKey !== undefined ? svgKey : detectSvgKeyFromTitle(title);
+
+  const newTask = {
+    id: 't-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+    listId: targetListId,
+    projectId: projectId || null,
+    title: title.trim(),
+    completed: false,
+    completedBy: null,
+    completedAt: null,
+    createdBy: appState.currentUser,
+    createdAt: new Date().toISOString(),
+    deadline,
+    owner,
+    priority,
+    recurrence,
+    emoji: emoji || '✨',
+    svgKey: resolvedSvg || null,
+    subtasks: [],
+    comments: []
+  };
+
+  data.tasks.push(newTask);
+
+  const activeList = data.lists.find(l => l.id === targetListId);
+  db.logAction(data, 'add_task', {
+    taskId: newTask.id,
+    taskTitle: newTask.title,
+    listName: projectId ? 'Meta/Projeto' : (activeList ? activeList.name : 'Lista')
+  });
+
+  playSound('add');
+  saveDataAndRender(data);
+  showToast('Nova tarefa adicionada! ✨');
+}
+
 function toggleTaskCompletion(taskId, isChecked) {
   const data = appState.dbData;
   const task = data.tasks.find(t => t.id === taskId);
   if (!task) return;
-  
+
   task.completed = isChecked;
   task.completedBy = isChecked ? appState.currentUser : null;
   task.completedAt = isChecked ? new Date().toISOString() : null;
-  
-  // Log action
+
   db.logAction(data, isChecked ? 'complete_task' : 'uncomplete_task', {
     taskId: task.id,
     taskTitle: task.title
   });
-  
+
+  if (isChecked) {
+    const scope = getBaseScopeTasks().tasks;
+    const ownerTasks = scope.filter(t => (t.owner || 'Shared') === (task.owner || 'Shared'));
+    const ownerAllDone = ownerTasks.length > 0 && ownerTasks.every(t => t.completed);
+    const allDone = scope.length > 0 && scope.every(t => t.completed);
+
+    // Check if linked project hit 100%
+    let projectComplete = false;
+    if (task.projectId) {
+      const pTasks = data.tasks.filter(t => t.projectId === task.projectId);
+      projectComplete = pTasks.length > 0 && pTasks.every(t => t.completed);
+    }
+
+    if (allDone) {
+      playSound('celebrate');
+      launchConfetti(110);
+      showToast('Tudo concluído! Hora do sorvete com o Bruce! 🍦🐶💛');
+    } else if (projectComplete) {
+      playSound('celebrate');
+      launchConfetti(75);
+      showToast('Meta 100% concluída! Vocês arrasaram! 🚀🎉');
+    } else if (ownerAllDone) {
+      playSound('celebrate');
+      launchConfetti(50);
+      showToast(`Lista de ${ownerDisplayName(task.owner)} 100% concluída! 🎉`);
+    } else {
+      playSound('check');
+      showToast(`"${task.title}" concluída! ✅`, {
+        actionLabel: 'Desfazer',
+        onAction: () => toggleTaskCompletion(taskId, false)
+      });
+    }
+  } else {
+    playSound('uncheck');
+  }
+
   saveDataAndRender(data);
 }
 
-// Action: Delete a task
-function handleDeleteTask(taskId) {
+async function handleDeleteTask(taskId) {
   const data = appState.dbData;
-  const taskIndex = data.tasks.findIndex(t => t.id === taskId);
-  if (taskIndex === -1) return;
-  
-  const task = data.tasks[taskIndex];
-  
-  // Confirmation if task is not completed yet
-  if (!task.completed && !confirm(`Deseja mesmo remover a tarefa "${task.title}"?`)) {
-    renderTasks(); // restore checkbox UI state
+  const idx = data.tasks.findIndex(t => t.id === taskId);
+  if (idx === -1) return;
+  const task = data.tasks[idx];
+
+  if (!task.completed) {
+    const ok = await confirmAction({
+      title: 'Remover tarefa?',
+      description: `Deseja remover "${task.title}" da lista?`,
+      confirmLabel: 'Remover',
+      danger: true
+    });
+    if (!ok) return;
+  }
+
+  const backupTask = JSON.parse(JSON.stringify(task));
+  db.logAction(data, 'delete_task', { taskId: task.id, taskTitle: task.title });
+  data.tasks.splice(idx, 1);
+  if (appState.expandedTaskId === taskId) appState.expandedTaskId = null;
+
+  saveDataAndRender(data);
+  showToast('Tarefa removida', {
+    actionLabel: 'Desfazer',
+    onAction: () => {
+      appState.dbData.tasks.push(backupTask);
+      saveDataAndRender(appState.dbData);
+      showToast('Tarefa restaurada! ↩️');
+    }
+  });
+}
+
+function updateTaskField(taskId, field, value, toastMsg = null) {
+  const data = appState.dbData;
+  const task = data.tasks.find(t => t.id === taskId);
+  if (!task) return;
+  task[field] = value;
+  saveDataAndRender(data);
+  if (toastMsg) showToast(toastMsg);
+}
+
+function reassignTaskOwner(taskId, newOwner) {
+  const data = appState.dbData;
+  const task = data.tasks.find(t => t.id === taskId);
+  if (!task || task.owner === newOwner) return;
+  task.owner = newOwner;
+  playSound('add');
+  saveDataAndRender(data);
+  showToast(`Movida para ${ownerDisplayName(newOwner)} ✨`);
+}
+
+function toggleSubtaskCompletion(taskId, subtaskId, isChecked) {
+  const data = appState.dbData;
+  const task = data.tasks.find(t => t.id === taskId);
+  if (!task) return;
+  const st = (task.subtasks || []).find(s => s.id === subtaskId);
+  if (st) {
+    st.completed = isChecked;
+    playSound(isChecked ? 'check' : 'uncheck');
+    saveDataAndRender(data);
+  }
+}
+
+function handleDeleteSubtask(taskId, subtaskId) {
+  const data = appState.dbData;
+  const task = data.tasks.find(t => t.id === taskId);
+  if (!task) return;
+  task.subtasks = (task.subtasks || []).filter(s => s.id !== subtaskId);
+  saveDataAndRender(data);
+}
+
+function handleAddSubtask(taskId, title) {
+  const data = appState.dbData;
+  const task = data.tasks.find(t => t.id === taskId);
+  if (!task) return;
+  task.subtasks = task.subtasks || [];
+  task.subtasks.push({
+    id: 'st-' + Date.now() + '-' + Math.random().toString(36).slice(2, 5),
+    title,
+    completed: false
+  });
+  playSound('add');
+  saveDataAndRender(data);
+}
+
+function handleAddComment(taskId, text) {
+  const data = appState.dbData;
+  const task = data.tasks.find(t => t.id === taskId);
+  if (!task) return;
+  task.comments = task.comments || [];
+  task.comments.push({
+    id: 'c-' + Date.now(),
+    user: appState.currentUser,
+    text,
+    timestamp: new Date().toISOString()
+  });
+  playSound('add');
+  saveDataAndRender(data);
+}
+
+// Silent Background Recurrence Cloner (FIXED: resets subtasks & advances deadline)
+function checkRecurrenceAndClone(data) {
+  if (!data || !data.tasks) return;
+  const now = new Date();
+  const snapshot = [...data.tasks];
+
+  snapshot.forEach(task => {
+    if (task.completed && task.recurrence && task.recurrence !== 'none') {
+      const completedAt = task.completedAt ? new Date(task.completedAt) : new Date(task.createdAt);
+      const diffDays = (now - completedAt) / (1000 * 60 * 60 * 24);
+      let shouldClone = false;
+      let nextDeadline = task.deadline ? new Date(task.deadline) : null;
+
+      if (task.recurrence === 'daily' && diffDays >= 1) {
+        shouldClone = true;
+        if (nextDeadline) nextDeadline.setDate(nextDeadline.getDate() + 1);
+      } else if (task.recurrence === 'weekly' && diffDays >= 7) {
+        shouldClone = true;
+        if (nextDeadline) nextDeadline.setDate(nextDeadline.getDate() + 7);
+      } else if (task.recurrence === 'monthly' && diffDays >= 30) {
+        shouldClone = true;
+        if (nextDeadline) nextDeadline.setMonth(nextDeadline.getMonth() + 1);
+      }
+
+      if (shouldClone) {
+        const originalRecurrence = task.recurrence;
+        const cloned = {
+          ...JSON.parse(JSON.stringify(task)),
+          id: 't-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+          completed: false,
+          completedBy: null,
+          completedAt: null,
+          createdAt: now.toISOString(),
+          deadline: nextDeadline ? nextDeadline.toISOString() : null,
+          subtasks: (task.subtasks || []).map(st => ({ ...st, completed: false })),
+          comments: [],
+          lastRecurrentTrigger: now.toISOString()
+        };
+        task.recurrence = 'none';
+        data.tasks.push(cloned);
+        db.logAction(data, 'add_task', {
+          taskId: cloned.id,
+          taskTitle: `${cloned.title} (Recorrente)`,
+          listName: 'Rotina Automática'
+        });
+      }
+    }
+  });
+}
+
+// ============================================================================
+// VIEW 2: CALENDÁRIO + INLINE DAY AGENDA PANEL
+// ============================================================================
+
+function renderCalendar() {
+  const data = appState.dbData;
+  const year = appState.currentMonth.getFullYear();
+  const month = appState.currentMonth.getMonth();
+  const monthNames = [
+    'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+    'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+  ];
+  el.calendarMonthTitle.textContent = `${monthNames[month]} ${year}`;
+
+  const headers = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+  let html = headers.map(h => `<div class="calendar-day-header">${h}</div>`).join('');
+
+  const firstDayIndex = new Date(year, month, 1).getDay();
+  const totalDays = new Date(year, month + 1, 0).getDate();
+  const prevTotalDays = new Date(year, month, 0).getDate();
+
+  for (let i = firstDayIndex - 1; i >= 0; i--) {
+    html += `<div class="calendar-cell other-month"><div class="calendar-date-number">${prevTotalDays - i}</div></div>`;
+  }
+
+  const today = new Date();
+  const selDay = appState.selectedCalendarDay;
+
+  for (let day = 1; day <= totalDays; day++) {
+    const cellDate = new Date(year, month, day);
+    const isToday = cellDate.toDateString() === today.toDateString();
+    const isSelected = selDay && cellDate.toDateString() === selDay.toDateString();
+
+    const dayTasks = data.tasks.filter(t => {
+      if (!t.deadline) return false;
+      const td = new Date(t.deadline);
+      return td.getFullYear() === year && td.getMonth() === month && td.getDate() === day;
+    });
+
+    let dotsHtml = '';
+    if (dayTasks.length > 0) {
+      dotsHtml = `<div class="calendar-tasks-indicator">` + dayTasks.slice(0, 8).map(t => {
+        let bg = '#ffec99';
+        if (t.owner === 'Gus') bg = '#aee8e4';
+        if (t.owner === 'Isa') bg = '#ffc4b0';
+        const op = t.completed ? 'opacity: 0.35;' : '';
+        return `<span class="calendar-task-dot" style="background:${bg};${op}" title="${escapeHTML(t.title)}"></span>`;
+      }).join('') + `</div>`;
+    }
+
+    html += `
+      <div class="calendar-cell ${isToday ? 'today' : ''} ${isSelected ? 'selected' : ''}" data-day="${day}">
+        <div class="calendar-date-number">${day}</div>
+        ${dotsHtml}
+      </div>
+    `;
+  }
+
+  const remaining = (7 - ((firstDayIndex + totalDays) % 7)) % 7;
+  for (let i = 1; i <= remaining; i++) {
+    html += `<div class="calendar-cell other-month"><div class="calendar-date-number">${i}</div></div>`;
+  }
+
+  el.calendarGrid.innerHTML = html;
+
+  el.calendarGrid.querySelectorAll('.calendar-cell:not(.other-month)').forEach(cell => {
+    cell.addEventListener('click', () => {
+      const dayNum = parseInt(cell.getAttribute('data-day'), 10);
+      appState.selectedCalendarDay = new Date(year, month, dayNum);
+      renderCalendar();
+    });
+  });
+
+  renderCalendarDayPanel();
+}
+
+function renderCalendarDayPanel() {
+  const d = appState.selectedCalendarDay;
+  if (!d || !el.calendarDayPanel) return;
+
+  el.calendarDayPanel.style.display = 'flex';
+  const dateLabel = d.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' });
+  el.calendarDayPanelTitle.textContent = `📅 ${dateLabel.charAt(0).toUpperCase() + dateLabel.slice(1)}`;
+
+  const dayTasks = appState.dbData.tasks.filter(t => {
+    if (!t.deadline) return false;
+    const td = new Date(t.deadline);
+    return td.getFullYear() === d.getFullYear() &&
+           td.getMonth() === d.getMonth() &&
+           td.getDate() === d.getDate();
+  });
+
+  el.calendarDayPanelSub.textContent = dayTasks.length === 0
+    ? 'Nenhuma tarefa com prazo neste dia'
+    : `${dayTasks.filter(t => t.completed).length} de ${dayTasks.length} concluída(s)`;
+
+  if (dayTasks.length === 0) {
+    el.calendarDayTasksList.innerHTML = '<p class="panel-sub" style="font-style:italic;">Dia livre! Adicione uma tarefa abaixo se quiser agendar algo.</p>';
+  } else {
+    el.calendarDayTasksList.innerHTML = dayTasks.map(t => {
+      const timeStr = new Date(t.deadline).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      const ownerCls = t.owner === 'Gus' ? 'gus' : t.owner === 'Isa' ? 'isa' : 'shared';
+      return `
+        <div class="project-task-row ${t.completed ? 'done' : ''}">
+          <button type="button" class="tactile-checkbox cal-task-check ${t.completed ? 'checked' : ''}" data-task-id="${t.id}" style="width:24px;height:24px;">
+            ${t.completed ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>' : ''}
+          </button>
+          <span class="pt-title">${escapeHTML(t.title)}</span>
+          <span class="panel-sub">⏰ ${timeStr}</span>
+          <span class="owner-pill ${ownerCls}">${ownerDisplayName(t.owner)}</span>
+        </div>
+      `;
+    }).join('');
+
+    el.calendarDayTasksList.querySelectorAll('.cal-task-check').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-task-id');
+        toggleTaskCompletion(id, !btn.classList.contains('checked'));
+      });
+    });
+  }
+}
+
+// ============================================================================
+// VIEW 3: PROJETOS & GRANDES METAS
+// ============================================================================
+
+function renderProjects() {
+  const data = appState.dbData;
+  const projects = data.projects || [];
+
+  if (projects.length === 0) {
+    el.projectsListContainer.innerHTML = `
+      <div class="empty-state" style="grid-column: 1 / -1;">
+        <div class="empty-state-icon">🚀</div>
+        <h3 class="empty-state-title">Nenhuma grande meta ainda</h3>
+        <p class="empty-state-desc">Criem um projeto para uma viagem, mudança ou sonho do casal!</p>
+      </div>
+    `;
     return;
   }
-  
-  // Log action before deleting
-  db.logAction(data, 'delete_task', {
-    taskId: task.id,
-    taskTitle: task.title
+
+  el.projectsListContainer.innerHTML = projects.map(project => {
+    const target = new Date(project.targetDate);
+    const diffDays = Math.ceil((target - new Date()) / (1000 * 60 * 60 * 24));
+    const countdownText = diffDays > 0
+      ? `⏳ ${diffDays} dia${diffDays === 1 ? '' : 's'} restante${diffDays === 1 ? '' : 's'}`
+      : (diffDays === 0 ? '🎯 É hoje!' : `⚠️ Atrasado há ${Math.abs(diffDays)} dia(s)`);
+
+    const pTasks = data.tasks.filter(t => t.projectId === project.id);
+    const done = pTasks.filter(t => t.completed).length;
+    const total = pTasks.length;
+    const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+
+    const tasksHtml = pTasks.length > 0
+      ? pTasks.map(t => {
+          const ownerCls = t.owner === 'Gus' ? 'gus' : t.owner === 'Isa' ? 'isa' : 'shared';
+          return `
+            <div class="project-task-row ${t.completed ? 'done' : ''}">
+              <input type="checkbox" class="project-task-toggle" data-task-id="${t.id}" ${t.completed ? 'checked' : ''} style="width:16px;height:16px;accent-color:#10b981;cursor:pointer;">
+              <span class="pt-title">${escapeHTML(t.title)}</span>
+              <span class="owner-pill ${ownerCls}" style="font-size:0.62rem;">${ownerShortName(t.owner)}</span>
+              <button type="button" class="task-mini-btn delete project-task-delete" data-task-id="${t.id}" title="Remover tarefa">✕</button>
+            </div>
+          `;
+        }).join('')
+      : '<p class="panel-sub" style="font-style:italic;">Nenhuma tarefa vinculada ainda.</p>';
+
+    return `
+      <article class="project-card" data-project-id="${project.id}">
+        <div class="project-card-top">
+          <span class="project-countdown-chip ${diffDays <= 7 ? 'urgent' : ''}">${countdownText}</span>
+          <button type="button" class="task-mini-btn delete project-delete-btn" data-project-id="${project.id}" title="Excluir projeto">✕</button>
+        </div>
+        <h3 class="project-title">${escapeHTML(project.name)} ${total > 0 && done === total ? '🎉' : ''}</h3>
+        <div>
+          <div class="project-progress-label">
+            <span>Progresso da Meta</span>
+            <strong>${pct}% (${done}/${total})</strong>
+          </div>
+          <div class="project-bar-track">
+            <div class="project-bar-fill" style="width:${pct}%"></div>
+          </div>
+        </div>
+        <div class="project-tasks-list">${tasksHtml}</div>
+        <form class="project-add-row" data-project-form="${project.id}" onsubmit="return false;">
+          <input type="text" class="input-project-task-add" placeholder="Nova etapa da meta..." autocomplete="off">
+          <select class="select-project-task-owner" aria-label="Responsável">
+            <option value="Shared">💛</option>
+            <option value="Gus">👦🏻</option>
+            <option value="Isa">👩🏻</option>
+          </select>
+          <button type="submit" class="btn-tactile btn-amber-sm">+</button>
+        </form>
+      </article>
+    `;
+  }).join('');
+
+  el.projectsListContainer.querySelectorAll('.project-delete-btn').forEach(btn => {
+    btn.addEventListener('click', () => handleDeleteProject(btn.getAttribute('data-project-id')));
   });
-  
-  // Remove task from array
-  data.tasks.splice(taskIndex, 1);
-  
+  el.projectsListContainer.querySelectorAll('.project-task-toggle').forEach(chk => {
+    chk.addEventListener('change', () => toggleTaskCompletion(chk.getAttribute('data-task-id'), chk.checked));
+  });
+  el.projectsListContainer.querySelectorAll('.project-task-delete').forEach(btn => {
+    btn.addEventListener('click', () => handleDeleteTask(btn.getAttribute('data-task-id')));
+  });
+  el.projectsListContainer.querySelectorAll('[data-project-form]').forEach(form => {
+    form.addEventListener('submit', e => {
+      e.preventDefault();
+      const projectId = form.getAttribute('data-project-form');
+      const input = form.querySelector('.input-project-task-add');
+      const ownerSel = form.querySelector('.select-project-task-owner');
+      const title = (input.value || '').trim();
+      if (!title) return;
+      createTask({ title, owner: ownerSel.value, projectId });
+      input.value = '';
+    });
+  });
+}
+
+function handleCreateProject() {
+  const name = el.inputProjectName.value.trim();
+  const targetVal = el.inputProjectTargetDate.value;
+  if (!name || !targetVal) {
+    showToast('Preencha o nome e a data-alvo do projeto ✍️');
+    return;
+  }
+
+  const data = appState.dbData;
+  const newProject = {
+    id: 'p-' + Date.now(),
+    name,
+    targetDate: new Date(targetVal).toISOString(),
+    createdAt: new Date().toISOString()
+  };
+
+  data.projects = data.projects || [];
+  data.projects.push(newProject);
+  db.logAction(data, 'add_project', { projectId: newProject.id, projectName: newProject.name });
+
+  el.addProjectModal.classList.remove('open');
+  playSound('add');
+  saveDataAndRender(data);
+  showToast('Nova meta criada! 🚀');
+}
+
+async function handleDeleteProject(projectId) {
+  const data = appState.dbData;
+  const project = (data.projects || []).find(p => p.id === projectId);
+  if (!project) return;
+
+  const ok = await confirmAction({
+    title: 'Excluir projeto?',
+    description: `Deseja remover a meta "${project.name}"? As tarefas vinculadas serão mantidas nas suas listas.`,
+    confirmLabel: 'Excluir',
+    danger: true
+  });
+  if (!ok) return;
+
+  data.projects = data.projects.filter(p => p.id !== projectId);
+  data.tasks.forEach(t => { if (t.projectId === projectId) delete t.projectId; });
+  db.logAction(data, 'delete_project', { projectId, projectName: project.name });
+  saveDataAndRender(data);
+  showToast('Projeto removido');
+}
+
+// ============================================================================
+// VIEW 4: MURAL & NÓS (STICKY NOTES + ACTIVITY FEED)
+// ============================================================================
+
+function renderNotes() {
+  const data = appState.dbData;
+  const notes = [...(data.notes || [])].sort((a, b) => {
+    if (Boolean(b.pinned) !== Boolean(a.pinned)) return b.pinned ? 1 : -1;
+    return new Date(b.timestamp) - new Date(a.timestamp);
+  });
+
+  if (notes.length === 0) {
+    el.notesGrid.innerHTML = `
+      <div class="empty-state" style="grid-column: 1 / -1;">
+        <div class="empty-state-icon">💌</div>
+        <h3 class="empty-state-title">Mural vazio</h3>
+        <p class="empty-state-desc">Deixe um bilhetinho carinhoso ou um lembrete para o seu par!</p>
+      </div>
+    `;
+    return;
+  }
+
+  const reactEmojis = ['❤️', '🥰', '😂', '👍'];
+
+  el.notesGrid.innerHTML = notes.map((note, idx) => {
+    const rot = note.pinned ? 0 : ((idx % 3) - 1) * 1.4;
+    const dateStr = new Date(note.timestamp).toLocaleString('pt-BR', {
+      day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'
+    });
+    const reactions = note.reactions || {};
+
+    const reactionsHtml = reactEmojis.map(em => {
+      const active = reactions[appState.currentUser] === em;
+      const count = Object.values(reactions).filter(v => v === em).length;
+      return `<button type="button" class="note-react-btn ${active ? 'active' : ''}" data-note-id="${note.id}" data-emoji="${em}">${em}${count > 0 ? ` ${count}` : ''}</button>`;
+    }).join('');
+
+    return `
+      <article class="note-card note-${note.color || 'yellow'}" style="transform: rotate(${rot}deg);">
+        <div class="note-pin-row">
+          <span class="note-pin-dot" title="${note.pinned ? 'Recado fixado' : ''}"></span>
+          <div class="note-actions">
+            <button type="button" class="note-action-btn ${note.pinned ? 'pinned' : ''}" data-pin-note="${note.id}" title="${note.pinned ? 'Desafixar' : 'Fixar no topo'}">📌</button>
+            <button type="button" class="note-action-btn" data-delete-note="${note.id}" title="Remover recado">🗑️</button>
+          </div>
+        </div>
+        <div class="note-text">${escapeHTML(note.text)}</div>
+        <div class="note-reactions-row">${reactionsHtml}</div>
+        <div class="note-footer">Por ${ownerDisplayName(note.user)} · ${dateStr}</div>
+      </article>
+    `;
+  }).join('');
+
+  el.notesGrid.querySelectorAll('[data-pin-note]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const note = appState.dbData.notes.find(n => n.id === btn.getAttribute('data-pin-note'));
+      if (!note) return;
+      note.pinned = !note.pinned;
+      playSound('check');
+      saveDataAndRender(appState.dbData);
+      showToast(note.pinned ? 'Recado fixado no topo 📌' : 'Recado desafixado');
+    });
+  });
+
+  el.notesGrid.querySelectorAll('[data-delete-note]').forEach(btn => {
+    btn.addEventListener('click', () => handleDeleteNote(btn.getAttribute('data-delete-note')));
+  });
+
+  el.notesGrid.querySelectorAll('.note-react-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const note = appState.dbData.notes.find(n => n.id === btn.getAttribute('data-note-id'));
+      if (!note) return;
+      const emoji = btn.getAttribute('data-emoji');
+      note.reactions = note.reactions || {};
+      if (note.reactions[appState.currentUser] === emoji) {
+        delete note.reactions[appState.currentUser];
+      } else {
+        note.reactions[appState.currentUser] = emoji;
+        playSound('check');
+      }
+      saveDataAndRender(appState.dbData);
+    });
+  });
+}
+
+function handleCreateNote() {
+  const text = el.inputNoteText.value.trim();
+  if (!text) {
+    showToast('Escreva um recado antes de fixar 💌');
+    return;
+  }
+
+  const data = appState.dbData;
+  const colorInput = document.querySelector('input[name="note_color"]:checked');
+  const newNote = {
+    id: 'n-' + Date.now(),
+    user: appState.currentUser,
+    text,
+    color: colorInput ? colorInput.value : 'yellow',
+    pinned: false,
+    reactions: {},
+    timestamp: new Date().toISOString()
+  };
+
+  data.notes = data.notes || [];
+  data.notes.push(newNote);
+  db.logAction(data, 'add_note', {
+    noteId: newNote.id,
+    noteText: text.slice(0, 24) + (text.length > 24 ? '...' : '')
+  });
+
+  el.inputNoteText.value = '';
+  el.addNoteModal.classList.remove('open');
+  playSound('add');
+  saveDataAndRender(data);
+  showToast('Recado fixado no mural! 💌');
+}
+
+async function handleDeleteNote(noteId) {
+  const data = appState.dbData;
+  const note = (data.notes || []).find(n => n.id === noteId);
+  if (!note) return;
+
+  const ok = await confirmAction({
+    title: 'Remover recado?',
+    description: 'Deseja retirar este bilhete do mural?',
+    confirmLabel: 'Remover',
+    danger: true
+  });
+  if (!ok) return;
+
+  data.notes = data.notes.filter(n => n.id !== noteId);
+  db.logAction(data, 'delete_note', { noteId, noteText: note.text.slice(0, 20) });
+  saveDataAndRender(data);
+  showToast('Recado removido');
+}
+
+// ============================================================================
+// HISTORY FEED (DRAWER + NÓS VIEW)
+// ============================================================================
+
+function renderHistory() {
+  const data = appState.dbData;
+  if (!data) return;
+  const logs = data.history || [];
+
+  const emojis = ['❤️', '👍', '🎉', '😂'];
+  const historyHtml = logs.map(log => {
+    const markerCls = log.user === 'Gus' ? 'gus' : log.user === 'Isa' ? 'isa' : 'shared';
+    const iconMap = {
+      add_task: '➕', complete_task: '✓', uncomplete_task: '↩️', delete_task: '🗑️',
+      add_list: '📁', delete_list: '✕', add_note: '💌', delete_note: '🗑️',
+      add_wish: '🎁', delete_wish: '🗑️', add_project: '🚀', delete_project: '🗑️',
+      undo_action: '↩️'
+    };
+    const icon = iconMap[log.action] || '✏️';
+    const time = new Date(log.timestamp).toLocaleString('pt-BR', {
+      day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'
+    });
+
+    let text = 'atualizou o aplicativo';
+    if (log.action === 'add_task') text = `adicionou <strong>"${escapeHTML(log.taskTitle)}"</strong> em <em>${escapeHTML(log.listName || 'Lista')}</em>`;
+    else if (log.action === 'complete_task') text = `concluiu <strong>"${escapeHTML(log.taskTitle)}"</strong>`;
+    else if (log.action === 'uncomplete_task') text = `reabriu <strong>"${escapeHTML(log.taskTitle)}"</strong>`;
+    else if (log.action === 'delete_task') text = `removeu <strong>"${escapeHTML(log.taskTitle)}"</strong>`;
+    else if (log.action === 'add_list') text = `criou a lista <strong>"${escapeHTML(log.listName)}"</strong>`;
+    else if (log.action === 'delete_list') text = `excluiu a lista <strong>"${escapeHTML(log.listName)}"</strong>`;
+    else if (log.action === 'add_note') text = `deixou recado: <em>"${escapeHTML(log.noteText)}"</em>`;
+    else if (log.action === 'delete_note') text = `removeu um recado do mural`;
+    else if (log.action === 'add_wish') text = `adicionou desejo: <strong>"${escapeHTML(log.wishTitle)}"</strong>`;
+    else if (log.action === 'delete_wish') text = `removeu desejo: <strong>"${escapeHTML(log.wishTitle)}"</strong>`;
+    else if (log.action === 'add_project') text = `criou a meta <strong>"${escapeHTML(log.projectName)}"</strong>`;
+    else if (log.action === 'delete_project') text = `removeu a meta <strong>"${escapeHTML(log.projectName)}"</strong>`;
+    else if (log.action === 'undo_action') text = `desfez uma ação de <em>${ownerDisplayName(log.undoUser)}</em>`;
+
+    const reactions = log.reactions || {};
+    const reactionsHtml = emojis.map(emoji => {
+      const active = reactions[appState.currentUser] === emoji;
+      const count = Object.values(reactions).filter(v => v === emoji).length;
+      return `<button type="button" class="btn-history-reaction ${active ? 'active' : ''}" data-log-id="${log.id}" data-emoji="${emoji}">${emoji}${count > 0 ? ` ${count}` : ''}</button>`;
+    }).join('');
+
+    const undoable = ['complete_task', 'add_task', 'add_list', 'add_note', 'add_wish'].includes(log.action);
+    const undoBtn = undoable ? `<button type="button" class="btn-history-undo" data-log-id="${log.id}">[Desfazer]</button>` : '';
+
+    return `
+      <div class="history-item">
+        <div class="history-top">
+          <div class="history-marker ${markerCls}">${icon}</div>
+          <div class="history-text">
+            <strong>${ownerDisplayName(log.user)}</strong> ${text}
+            <span class="history-time">${time}</span>
+            ${undoBtn}
+          </div>
+        </div>
+        <div class="history-reactions-row">${reactionsHtml}</div>
+      </div>
+    `;
+  }).join('');
+
+  const emptyHtml = '<p class="panel-sub" style="text-align:center; padding: 1.5rem 0;">Nenhuma atividade registrada ainda.</p>';
+
+  [el.historyList, el.nosHistoryList].forEach(target => {
+    if (!target) return;
+    target.innerHTML = historyHtml || emptyHtml;
+    target.querySelectorAll('.btn-history-reaction').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        handleHistoryReaction(btn.getAttribute('data-log-id'), btn.getAttribute('data-emoji'));
+      });
+    });
+    target.querySelectorAll('.btn-history-undo').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        handleHistoryUndo(btn.getAttribute('data-log-id'));
+      });
+    });
+  });
+}
+
+function handleHistoryReaction(logId, emoji) {
+  const data = appState.dbData;
+  const log = data.history.find(h => h.id === logId);
+  if (!log) return;
+  log.reactions = log.reactions || {};
+  if (log.reactions[appState.currentUser] === emoji) {
+    delete log.reactions[appState.currentUser];
+  } else {
+    log.reactions[appState.currentUser] = emoji;
+    playSound('check');
+  }
   saveDataAndRender(data);
 }
 
-// Action: Delete a list and all its tasks
-function handleDeleteList(listId) {
+function handleHistoryUndo(logId) {
+  const data = appState.dbData;
+  const idx = data.history.findIndex(h => h.id === logId);
+  if (idx === -1) return;
+  const log = data.history[idx];
+
+  if (log.action === 'complete_task') {
+    const t = data.tasks.find(x => x.id === log.taskId);
+    if (t) { t.completed = false; t.completedBy = null; t.completedAt = null; }
+  } else if (log.action === 'add_task') {
+    data.tasks = data.tasks.filter(x => x.id !== log.taskId);
+  } else if (log.action === 'add_list') {
+    data.lists = data.lists.filter(l => l.id !== log.listId);
+    data.tasks = data.tasks.filter(t => t.listId !== log.listId);
+  } else if (log.action === 'add_note') {
+    data.notes = (data.notes || []).filter(n => n.id !== log.noteId);
+  } else if (log.action === 'add_wish') {
+    data.wishlist = (data.wishlist || []).filter(w => w.id !== log.wishId);
+  }
+
+  data.history.splice(idx, 1);
+  db.logAction(data, 'undo_action', { undoAction: log.action, undoUser: log.user });
+  playSound('uncheck');
+  saveDataAndRender(data);
+  showToast('Ação desfeita! ↩️');
+}
+
+// ============================================================================
+// VIEW 5: WISHLIST (LISTA DE DESEJOS)
+// ============================================================================
+
+function renderWishlist() {
+  const wishes = appState.dbData.wishlist || [];
+  const gusWishes = wishes.filter(w => w.user === 'Gus');
+  const isaWishes = wishes.filter(w => w.user === 'Isa');
+  const sharedWishes = wishes.filter(w => w.user === 'Shared' || !w.user);
+
+  el.wishCountGus.textContent = gusWishes.length;
+  el.wishCountIsa.textContent = isaWishes.length;
+  el.wishCountShared.textContent = sharedWishes.length;
+
+  const renderGroup = (grid, list) => {
+    if (list.length === 0) {
+      grid.innerHTML = '<div class="board-empty-box" style="grid-column: 1 / -1;">Nenhum desejo listado por aqui ainda.</div>';
+      return;
+    }
+
+    const sorted = [...list].sort((a, b) => Number(!!a.purchased) - Number(!!b.purchased));
+    grid.innerHTML = sorted.map(w => `
+      <article class="wish-card ${w.purchased ? 'purchased' : ''}">
+        <div class="wish-top">
+          <h4 class="wish-title">${escapeHTML(w.title)}</h4>
+          <button type="button" class="task-mini-btn delete wish-delete-btn" data-wish-id="${w.id}" title="Remover desejo">✕</button>
+        </div>
+        ${w.price ? `<span class="wish-price-pill">🏷️ ${escapeHTML(w.price)}</span>` : ''}
+        ${w.notes ? `<p class="wish-notes">${escapeHTML(w.notes)}</p>` : ''}
+        <div class="wish-footer">
+          <div style="display:flex; gap:0.35rem; flex-wrap:wrap;">
+            ${w.link ? `<a href="${escapeHTML(w.link)}" target="_blank" rel="noopener noreferrer" class="wish-link-btn">🔗 Ver link</a>` : ''}
+            <button type="button" class="wish-purchased-btn ${w.purchased ? 'active' : ''}" data-toggle-wish="${w.id}">
+              ${w.purchased ? '✅ Realizado!' : 'Marcar realizado'}
+            </button>
+          </div>
+          <span style="font-size:0.68rem; font-weight:700; opacity:0.6;">Por ${ownerDisplayName(w.createdBy)}</span>
+        </div>
+      </article>
+    `).join('');
+  };
+
+  renderGroup(el.wishlistGus, gusWishes);
+  renderGroup(el.wishlistIsa, isaWishes);
+  renderGroup(el.wishlistShared, sharedWishes);
+
+  el.viewWishlist.querySelectorAll('.wish-delete-btn').forEach(btn => {
+    btn.addEventListener('click', () => handleDeleteWish(btn.getAttribute('data-wish-id')));
+  });
+  el.viewWishlist.querySelectorAll('[data-toggle-wish]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const wish = (appState.dbData.wishlist || []).find(w => w.id === btn.getAttribute('data-toggle-wish'));
+      if (!wish) return;
+      wish.purchased = !wish.purchased;
+      if (wish.purchased) {
+        playSound('celebrate');
+        launchConfetti(55);
+        showToast(`Desejo "${wish.title}" realizado! 🎁🎉`);
+      } else {
+        playSound('uncheck');
+      }
+      saveDataAndRender(appState.dbData);
+    });
+  });
+}
+
+function handleCreateWish() {
+  const title = el.inputWishTitle.value.trim();
+  if (!title) {
+    showToast('Digite o nome do desejo primeiro 🎁');
+    return;
+  }
+
+  const data = appState.dbData;
+  const ownerInput = document.querySelector('input[name="wish_owner"]:checked');
+  const newWish = {
+    id: 'w-' + Date.now(),
+    user: ownerInput ? ownerInput.value : 'Shared',
+    title,
+    price: el.inputWishPrice.value.trim(),
+    link: el.inputWishLink.value.trim(),
+    notes: el.inputWishNotes.value.trim(),
+    purchased: false,
+    createdBy: appState.currentUser,
+    timestamp: new Date().toISOString()
+  };
+
+  data.wishlist = data.wishlist || [];
+  data.wishlist.push(newWish);
+  db.logAction(data, 'add_wish', { wishId: newWish.id, wishTitle: newWish.title });
+
+  el.inputWishTitle.value = '';
+  el.inputWishPrice.value = '';
+  el.inputWishLink.value = '';
+  el.inputWishNotes.value = '';
+  el.addWishModal.classList.remove('open');
+  playSound('add');
+  saveDataAndRender(data);
+  showToast('Desejo adicionado! 🎁');
+}
+
+async function handleDeleteWish(wishId) {
+  const data = appState.dbData;
+  const wish = (data.wishlist || []).find(w => w.id === wishId);
+  if (!wish) return;
+
+  const ok = await confirmAction({
+    title: 'Remover desejo?',
+    description: `Deseja remover "${wish.title}" da lista de desejos?`,
+    confirmLabel: 'Remover',
+    danger: true
+  });
+  if (!ok) return;
+
+  data.wishlist = data.wishlist.filter(w => w.id !== wishId);
+  db.logAction(data, 'delete_wish', { wishId, wishTitle: wish.title });
+  saveDataAndRender(data);
+  showToast('Desejo removido');
+}
+
+// ============================================================================
+// VIEW 6: CONQUISTAS & ESTATÍSTICAS
+// ============================================================================
+
+function renderStats() {
+  const data = appState.dbData;
+  const now = new Date();
+  const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const completed = data.tasks.filter(t => t.completed);
+
+  const gusTotal = completed.filter(t => t.completedBy === 'Gus' || (!t.completedBy && t.owner === 'Gus')).length;
+  const isaTotal = completed.filter(t => t.completedBy === 'Isa' || (!t.completedBy && t.owner === 'Isa')).length;
+
+  const weekly = completed.filter(t => t.completedAt && new Date(t.completedAt) >= oneWeekAgo);
+  const gusWeekly = weekly.filter(t => t.completedBy === 'Gus').length;
+  const isaWeekly = weekly.filter(t => t.completedBy === 'Isa').length;
+
+  let championText = 'Empate técnico esta semana! ⚖️';
+  if (gusWeekly > isaWeekly) championText = `Gustavo lidera a semana com ${gusWeekly} tarefa${gusWeekly === 1 ? '' : 's'}! 🏆`;
+  else if (isaWeekly > gusWeekly) championText = `Isabella lidera a semana com ${isaWeekly} tarefa${isaWeekly === 1 ? '' : 's'}! 🏆`;
+
+  const sumTotal = gusTotal + isaTotal;
+  const gusShare = sumTotal > 0 ? Math.round((gusTotal / sumTotal) * 100) : 50;
+  const isaShare = sumTotal > 0 ? 100 - gusShare : 50;
+
+  // Build 7-day activity data
+  const daysData = [];
+  let maxDayCount = 1;
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+    const label = d.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '');
+    const dayCompleted = completed.filter(t => {
+      if (!t.completedAt) return false;
+      const cd = new Date(t.completedAt);
+      return cd.getFullYear() === d.getFullYear() && cd.getMonth() === d.getMonth() && cd.getDate() === d.getDate();
+    });
+    const g = dayCompleted.filter(t => t.completedBy === 'Gus').length;
+    const is = dayCompleted.filter(t => t.completedBy === 'Isa').length;
+    if (g + is > maxDayCount) maxDayCount = g + is;
+    daysData.push({ label, g, is, total: g + is });
+  }
+
+  const chartColsHtml = daysData.map(day => {
+    const gPct = Math.round((day.g / maxDayCount) * 100);
+    const iPct = Math.round((day.is / maxDayCount) * 100);
+    return `
+      <div class="chart-col" title="${day.label}: Gustavo ${day.g}, Isabella ${day.is}">
+        <div class="chart-stack">
+          ${day.is > 0 ? `<div class="chart-bar-seg isa" style="height:${Math.max(14, iPct)}%"></div>` : ''}
+          ${day.g > 0 ? `<div class="chart-bar-seg gus" style="height:${Math.max(14, gPct)}%"></div>` : ''}
+        </div>
+        <span class="chart-day-label">${day.label}</span>
+      </div>
+    `;
+  }).join('');
+
+  el.statsSummaryContainer.innerHTML = `
+    <div class="stats-champion-banner">
+      <span class="stats-champion-kicker">🏆 Campeão de Produtividade da Semana</span>
+      <h2 class="stats-champion-title">${championText}</h2>
+    </div>
+
+    <div class="stats-versus-grid">
+      <div class="stats-partner-box gus">
+        <div class="couple-mini-avatar" style="background:var(--gus-avatar);">${GUS_AVATAR_SVG}</div>
+        <div>
+          <div class="couple-mini-name" style="color:var(--gus-ink);">GUSTAVO</div>
+          <div class="stats-big-num">${gusTotal}</div>
+          <div class="stats-partner-meta">Total · ${gusWeekly} esta semana</div>
+        </div>
+      </div>
+
+      <div class="stats-partner-box isa">
+        <div class="couple-mini-avatar" style="background:var(--isa-avatar);">${ISA_AVATAR_SVG}</div>
+        <div>
+          <div class="couple-mini-name" style="color:var(--isa-ink);">ISABELLA</div>
+          <div class="stats-big-num">${isaTotal}</div>
+          <div class="stats-partner-meta">Total · ${isaWeekly} esta semana</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tug-bar-wrap">
+      <div class="tug-bar-labels">
+        <span>Gustavo (${gusShare}%)</span>
+        <span>Equilíbrio do Casal</span>
+        <span>Isabella (${isaShare}%)</span>
+      </div>
+      <div class="tug-bar-track">
+        <div class="tug-gus" style="width:${gusShare}%"></div>
+        <div class="tug-isa" style="width:${isaShare}%"></div>
+      </div>
+    </div>
+
+    <div class="chart-7d-box">
+      <div class="chart-7d-title">📊 Atividade dos Últimos 7 Dias</div>
+      <div class="chart-7d-bars">${chartColsHtml}</div>
+    </div>
+  `;
+
+  // Compute Achievements (7 original + 3 couple bonuses)
+  const notesCount = (data.notes || []).length;
+  const projectsCount = (data.projects || []).length;
+  const listsCount = data.lists.length;
+  const wishesFulfilled = (data.wishlist || []).filter(w => w.purchased).length;
+  const subtasksCompleted = data.tasks.some(t => t.completed && (t.subtasks || []).length > 0 && t.subtasks.every(s => s.completed));
+  const allTasksDoneNow = data.tasks.length > 0 && data.tasks.every(t => t.completed);
+
+  let reactionsReceived = 0;
+  (data.history || []).forEach(log => {
+    if (log.user === appState.currentUser && log.reactions) {
+      reactionsReceived += Object.keys(log.reactions).length;
+    }
+  });
+
+  const userCompletions = completed.filter(t => t.completedBy === appState.currentUser).length;
+
+  const achievements = [
+    { title: 'Primeiros Passos', desc: 'Concluiu sua primeira tarefa', icon: '🌱', current: userCompletions, target: 1 },
+    { title: 'Parceria Forte', desc: 'Concluiu 10 tarefas no app', icon: '🤝', current: userCompletions, target: 10 },
+    { title: 'Super Produtivo', desc: 'Concluiu 30 tarefas no app', icon: '⚡', current: userCompletions, target: 30 },
+    { title: 'Mestre da Organização', desc: 'Criou pelo menos 3 listas diferentes', icon: '🗂️', current: listsCount, target: 3 },
+    { title: 'Mensageiro do Amor', desc: 'Deixou 2 recados no mural', icon: '💖', current: notesCount, target: 2 },
+    { title: 'Sonhador do Casal', desc: 'Criou pelo menos 2 grandes metas', icon: '✈️', current: projectsCount, target: 2 },
+    { title: 'Amor em Gestos', desc: 'Recebeu 3 reações do seu par', icon: '💝', current: reactionsReceived, target: 3 },
+    { title: 'Equipe Imbatível', desc: 'Zerar 100% das tarefas cadastradas', icon: '🏆', current: allTasksDoneNow ? 1 : 0, target: 1 },
+    { title: 'Detalhista', desc: 'Concluiu tarefa com checklist 100%', icon: '☑️', current: subtasksCompleted ? 1 : 0, target: 1 },
+    { title: 'Sonho Realizado', desc: 'Realizou 1 item da Lista de Desejos', icon: '🎁', current: wishesFulfilled, target: 1 }
+  ];
+
+  const unlockedCount = achievements.filter(a => a.current >= a.target).length;
+  el.achievementsProgressBadge.textContent = `${unlockedCount} / ${achievements.length} desbloqueadas`;
+
+  el.achievementsGrid.innerHTML = achievements.map(ach => {
+    const unlocked = ach.current >= ach.target;
+    const pct = Math.min(100, Math.round((ach.current / ach.target) * 100));
+    return `
+      <div class="achievement-card ${unlocked ? 'unlocked' : 'locked'}">
+        <div class="achievement-icon">${ach.icon}</div>
+        <div class="achievement-info">
+          <div class="achievement-title">${escapeHTML(ach.title)}</div>
+          <div class="achievement-desc">${escapeHTML(ach.desc)}</div>
+          <div class="achievement-bar-track">
+            <div class="achievement-bar-fill" style="width:${pct}%"></div>
+          </div>
+          <span class="achievement-status">
+            ${unlocked ? '🔓 Desbloqueada!' : `🔒 ${Math.min(ach.current, ach.target)} / ${ach.target}`}
+          </span>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// ============================================================================
+// LIST MANAGEMENT, INVITES, PROFILE SWITCH & BACKUP
+// ============================================================================
+
+function populateGroupSelect() {
+  const data = appState.dbData;
+  if (!data) return;
+  let html = data.groups.map(g => `<option value="${g.id}">${escapeHTML(g.name)}</option>`).join('');
+  html += `<option value="" disabled>──────────</option><option value="NEW_GROUP">➕ Criar Novo Grupo...</option>`;
+  el.selectListGroup.innerHTML = html;
+  el.newGroupNameGroup.style.display = 'none';
+}
+
+function handleCreateList() {
+  const listName = el.inputListName.value.trim();
+  if (!listName) {
+    showToast('Digite o nome da nova lista 📁');
+    return;
+  }
+
+  const data = appState.dbData;
+  let groupId = el.selectListGroup.value;
+
+  if (groupId === 'NEW_GROUP') {
+    const newGroupName = el.inputNewGroupName.value.trim();
+    if (!newGroupName) {
+      showToast('Digite o nome do novo grupo ✍️');
+      return;
+    }
+    const newGroup = { id: 'g-' + Date.now(), name: newGroupName, createdAt: new Date().toISOString() };
+    data.groups.push(newGroup);
+    groupId = newGroup.id;
+  }
+
+  const ownerChecked = document.querySelector('input[name="list_owner"]:checked');
+  const newList = {
+    id: 'l-' + Date.now(),
+    name: listName,
+    groupId,
+    owner: ownerChecked ? ownerChecked.value : 'Shared',
+    createdAt: new Date().toISOString()
+  };
+
+  data.lists.push(newList);
+  db.logAction(data, 'add_list', { listId: newList.id, listName: newList.name });
+
+  el.addListModal.classList.remove('open');
+  appState.activeTab = 'tasks';
+  appState.activeListId = newList.id;
+  appState.activeFilter = 'list';
+
+  playSound('add');
+  saveDataAndRender(data);
+  showToast(`Lista "${newList.name}" criada! 📁`);
+}
+
+async function handleDeleteList(listId) {
   const data = appState.dbData;
   const list = data.lists.find(l => l.id === listId);
   if (!list) return;
-  
-  if (!confirm(`Excluir a lista "${list.name}" removerá também todas as tarefas dentro dela. Deseja prosseguir?`)) {
-    return;
-  }
-  
-  // Log action
-  db.logAction(data, 'delete_list', {
-    listId: list.id,
-    listName: list.name
+
+  const ok = await confirmAction({
+    title: `Excluir "${list.name}"?`,
+    description: 'Excluir esta lista removerá também todas as tarefas dentro dela.',
+    confirmLabel: 'Excluir Lista',
+    danger: true
   });
-  
-  // Remove list and its tasks
+  if (!ok) return;
+
+  db.logAction(data, 'delete_list', { listId: list.id, listName: list.name });
   data.lists = data.lists.filter(l => l.id !== listId);
   data.tasks = data.tasks.filter(t => t.listId !== listId);
-  
-  // If active list was deleted, redirect
+
   if (appState.activeListId === listId) {
     appState.activeListId = 'all';
     appState.activeFilter = 'all';
   }
-  
+
   saveDataAndRender(data);
+  showToast(`Lista "${list.name}" excluída`);
 }
 
-// Register DOM and UI Event Listeners
-function setupEventListeners() {
-  // Mobile Sidebar Toggle
-  elements.btnToggleMenu.addEventListener('click', () => {
-    elements.sidebar.classList.add('open');
-    elements.sidebarOverlay.classList.add('open');
-  });
-  
-  elements.sidebarOverlay.addEventListener('click', closeMobileSidebar);
-  
-  // Setup Submit
-  elements.setupForm.addEventListener('submit', (e) => {
-    e.preventDefault();
-    
-    const user = document.querySelector('input[name="setup_user"]:checked').value;
-    const secret = elements.setupSecretKey.value.trim().toLowerCase();
-    
-    const firebaseConfig = {
-      apiKey: elements.setupApiKey.value.trim(),
-      databaseURL: elements.setupDbUrl.value.trim(),
-      projectId: elements.setupProjectId.value.trim(),
-      authDomain: `${elements.setupProjectId.value.trim()}.firebaseapp.com`,
-      storageBucket: `${elements.setupProjectId.value.trim()}.appspot.com`
-    };
-    
-    db.saveConfig(firebaseConfig, secret, user);
-    checkConfiguration();
-  });
-  
-  // Add List Modals Open/Close
-  elements.btnOpenAddListModal.addEventListener('click', () => {
-    elements.addListModal.classList.add('open');
-    populateGroupSelect();
-    elements.inputListName.value = '';
-    elements.inputNewGroupName.value = '';
-    elements.inputListName.focus();
-  });
-  
-  const closeAddList = () => {
-    elements.addListModal.classList.remove('open');
-  };
-  
-  elements.btnCloseAddListModal.addEventListener('click', closeAddList);
-  elements.btnCancelAddList.addEventListener('click', closeAddList);
-  
-  // Trigger Group visibility depending on dropdown selection
-  elements.selectListGroup.addEventListener('change', () => {
-    const value = elements.selectListGroup.value;
-    elements.newGroupNameGroup.style.display = value === 'NEW_GROUP' ? 'block' : 'none';
-  });
-  
-  // Save new list
-  elements.btnSaveList.addEventListener('click', handleCreateList);
-  
-  // Task submit form
-  elements.addTaskForm.addEventListener('submit', (e) => {
-    e.preventDefault();
-    handleCreateTask();
-  });
-  
-  // History Drawer Show/Hide
-  elements.btnToggleHistory.addEventListener('click', () => {
-    elements.activityDrawer.classList.add('open');
-    elements.drawerOverlay.classList.add('open');
-  });
-  
-  const closeHistory = () => {
-    elements.activityDrawer.classList.remove('open');
-    elements.drawerOverlay.classList.remove('open');
-  };
-  elements.btnCloseHistory.addEventListener('click', closeHistory);
-  elements.drawerOverlay.addEventListener('click', closeHistory);
-  
-  // Settings Modal Open/Close
-  elements.btnOpenSettings.addEventListener('click', () => {
-    elements.settingsModal.classList.add('open');
-    updateProfileBadgeUI();
-    const iftttConfig = ifttt.getIftttConfig();
-    elements.setupIftttKey.value = iftttConfig.key;
-    elements.setupIftttEvent.value = iftttConfig.event;
-  });
-  
-  const saveIftttSettings = () => {
-    const key = elements.setupIftttKey.value.trim();
-    const event = elements.setupIftttEvent.value.trim();
-    ifttt.saveIftttConfig(key, event);
-  };
-  
-  elements.btnCloseSettingsModal.addEventListener('click', () => {
-    saveIftttSettings();
-    elements.settingsModal.classList.remove('open');
-  });
-  elements.btnConfirmCloseSettings.addEventListener('click', () => {
-    saveIftttSettings();
-    elements.settingsModal.classList.remove('open');
-  });
-  
-  // Reset App / Log out configuration
-  elements.btnResetApp.addEventListener('click', () => {
-    if (confirm("Deseja realmente desconectar este dispositivo do banco Firebase?")) {
-      db.clearConfig();
-      elements.settingsModal.classList.remove('open');
-      showSetupScreen();
+function switchUserProfile(user) {
+  appState.currentUser = user;
+  db.setCurrentUser(user);
+  const config = db.getSavedConfig();
+  if (config) {
+    db.saveConfig(config.firebaseConfig, config.secretKey, user);
+  }
+  playSound('check');
+  updateSettingsModalUI();
+  renderApp();
+  showToast(`Perfil ativo: ${ownerDisplayName(user)}! 👋`);
+}
+
+function generateInviteLink() {
+  const config = db.getSavedConfig();
+  if (!config) return null;
+  const payload = { firebaseConfig: config.firebaseConfig, secretKey: config.secretKey };
+  const base64 = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+  return window.location.origin + window.location.pathname + '?config=' + base64;
+}
+
+function handleIncomingInvite() {
+  const params = new URLSearchParams(window.location.search);
+  const configParam = params.get('config');
+  if (!configParam) return;
+
+  try {
+    const decoded = JSON.parse(decodeURIComponent(escape(atob(configParam))));
+    if (decoded.firebaseConfig && decoded.secretKey) {
+      db.saveConfig(decoded.firebaseConfig, decoded.secretKey, 'Isa');
+      const cleanUrl = window.location.origin + window.location.pathname;
+      window.history.replaceState({}, document.title, cleanUrl);
+      showToast('Convite conectado com sucesso! Bem-vinda, Isabella! 💛');
     }
-  });
-  
-  // Enable local notifications
-  elements.btnEnableNotifications.addEventListener('click', () => {
-    notifications.requestPermission().then(permission => {
-      if (permission === 'granted') {
-        notifications.showNotification("Notificações Ativadas!", "Prontinho! Você receberá alertas quando houver novas tarefas.");
-      } else {
-        alert("Notificações bloqueadas pelo navegador. Permita nas configurações do seu celular.");
-      }
-    });
-  });
-  
-  // Profile Switching in Settings
-  elements.btnSwitchToGus.addEventListener('click', () => switchUserProfile('Gus'));
-  elements.btnSwitchToIsa.addEventListener('click', () => switchUserProfile('Isa'));
-  
-  // Invite System Copy Button
-  elements.btnCopyInviteLink.addEventListener('click', () => {
+  } catch (e) {
+    console.error('Erro ao processar convite:', e);
+    showToast('Link de convite inválido.', 'error');
+  }
+}
+
+function updateSettingsModalUI() {
+  const isGus = appState.currentUser === 'Gus';
+  el.btnSwitchToGus.classList.toggle('active', isGus);
+  el.btnSwitchToIsa.classList.toggle('active', !isGus);
+  updateSoundUI();
+
+  // Notification status hint
+  const nStatus = notifications.getNotificationStatus();
+  if (el.notificationStatusHint) {
+    if (!nStatus.supported) el.notificationStatusHint.textContent = nStatus.reason;
+    else if (nStatus.state === 'granted') el.notificationStatusHint.textContent = '✅ Notificações ativadas neste dispositivo.';
+    else if (nStatus.state === 'denied') el.notificationStatusHint.textContent = '⚠️ Permissão negada nas configurações do navegador.';
+    else el.notificationStatusHint.textContent = 'Receba avisos quando seu par concluir tarefas ou enviar reações.';
+  }
+
+  const config = db.getSavedConfig();
+  if (config) {
+    el.settingsConnectedDb.textContent = config.firebaseConfig.databaseURL;
+    el.btnConnectFirebaseFromLocal.style.display = 'none';
+    el.settingsInviteBlock.style.display = 'flex';
+    el.btnResetApp.textContent = 'Desconectar Banco';
+
     const inviteUrl = generateInviteLink();
     if (inviteUrl) {
-      navigator.clipboard.writeText(inviteUrl).then(() => {
-        alert("Link de convite copiado para a área de transferência! Envie para o seu parceiro.");
-      }).catch(err => {
-        // Fallback
-        const input = document.createElement('input');
-        input.value = inviteUrl;
-        document.body.appendChild(input);
-        input.select();
-        document.execCommand('copy');
-        document.body.removeChild(input);
-        alert("Link de convite copiado!");
-      });
-    } else {
-      alert("Configure o aplicativo primeiro para gerar um convite.");
+      el.inviteQrCode.src = 'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=' + encodeURIComponent(inviteUrl);
+      el.inviteQrCode.style.display = 'block';
+      el.inviteQrCodeText.style.display = 'block';
     }
+  } else {
+    el.settingsConnectedDb.textContent = 'Modo Local (salvo apenas neste navegador)';
+    el.btnConnectFirebaseFromLocal.style.display = 'inline-flex';
+    el.settingsInviteBlock.style.display = 'none';
+    el.btnResetApp.textContent = 'Voltar à Tela Inicial';
+  }
+}
+
+function renderQuickAddEmojiTray() {
+  if (!el.quickAddEmojiTray) return;
+  el.quickAddEmojiTray.innerHTML = ALL_EMOJIS.map(em => `
+    <button type="button" class="emoji-opt ${appState.selectedQuickAddEmoji === em ? 'selected' : ''}" data-qa-emoji="${em}">${em}</button>
+  `).join('');
+
+  el.quickAddEmojiTray.querySelectorAll('[data-qa-emoji]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      appState.selectedQuickAddEmoji = btn.getAttribute('data-qa-emoji');
+      el.btnQuickEmojiToggle.textContent = appState.selectedQuickAddEmoji;
+      el.quickAddEmojiTray.style.display = 'none';
+      renderQuickAddEmojiTray();
+    });
   });
-  
-  // IFTTT Test Webhook
-  elements.btnTestIfttt.addEventListener('click', () => {
-    const data = appState.dbData;
-    if (!data) return;
-    ifttt.fireTestWebhook(data, appState.currentUser)
-      .then(() => alert("Disparo de teste enviado com sucesso! Verifique seu WhatsApp/Email configurado."))
-      .catch(err => alert("Erro no disparo de teste: " + err));
+}
+
+// ============================================================================
+// GLOBAL EVENT LISTENERS
+// ============================================================================
+
+function setupEventListeners() {
+  // Mobile Sidebar Open/Close
+  el.btnToggleMenu.addEventListener('click', () => {
+    el.sidebar.classList.add('open');
+    el.sidebarOverlay.classList.add('open');
   });
-  
-  // Back button in header (returns to Dashboard)
-  if (elements.btnHeaderBack) {
-    elements.btnHeaderBack.addEventListener('click', (e) => {
+  el.btnCloseSidebarMobile.addEventListener('click', closeMobileSidebar);
+  el.sidebarOverlay.addEventListener('click', closeMobileSidebar);
+
+  // Back button on mobile list view
+  el.btnHeaderBack.addEventListener('click', () => {
+    appState.activeTab = 'dashboard';
+    renderApp();
+  });
+
+  // Sidebar Navigation Tabs
+  document.querySelectorAll('.sidebar .nav-item[data-nav-tab]').forEach(link => {
+    link.addEventListener('click', e => {
       e.preventDefault();
-      appState.activeTab = 'dashboard';
+      const tab = link.getAttribute('data-nav-tab');
+      appState.activeTab = tab;
+      if (tab === 'tasks') {
+        appState.activeFilter = 'all';
+        appState.activeListId = 'all';
+      }
+      closeMobileSidebar();
       renderApp();
     });
-  }
-
-  // Dashboard "+" add list button listener
-  if (elements.btnDashboardOpenAddList) {
-    elements.btnDashboardOpenAddList.addEventListener('click', (e) => {
-      e.preventDefault();
-      elements.addListModal.classList.add('open');
-      populateGroupSelect();
-      elements.inputListName.value = '';
-      elements.inputNewGroupName.value = '';
-      elements.inputListName.focus();
-    });
-  }
-
-  // Sticky task add form submission (adds to current active list)
-  const stickyForm = document.getElementById('stickyAddTaskForm');
-  if (stickyForm) {
-    stickyForm.addEventListener('submit', (e) => {
-      e.preventDefault();
-      const input = document.getElementById('inputStickyTaskTitle');
-      const title = input.value.trim();
-      if (!title) return;
-      
-      const data = appState.dbData;
-      let targetListId = appState.activeListId;
-      if (appState.activeListId === 'all' || appState.activeListId === 'today') {
-        if (data.lists.length > 0) {
-          targetListId = data.lists[0].id;
-        } else {
-          alert("Crie uma lista no menu lateral antes de adicionar tarefas.");
-          return;
-        }
-      }
-      
-      const newTask = {
-        id: 't-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
-        listId: targetListId,
-        title: title,
-        completed: false,
-        completedBy: null,
-        completedAt: null,
-        createdBy: appState.currentUser,
-        createdAt: new Date().toISOString(),
-        deadline: null,
-        owner: 'Shared'
-      };
-      
-      data.tasks.push(newTask);
-      
-      const activeList = data.lists.find(l => l.id === targetListId);
-      db.logAction(data, 'add_task', {
-        taskId: newTask.id,
-        taskTitle: newTask.title,
-        listName: activeList ? activeList.name : 'Lista'
-      });
-      
-      input.value = '';
-      saveDataAndRender(data);
-    });
-  }
-
-  // Tabs Switch Controller
-  const tabs = ['Dashboard', 'Tasks', 'Calendar', 'Projects', 'Notes', 'Wishlist', 'Stats'];
-  tabs.forEach(tabName => {
-    const el = elements[`tab${tabName}`];
-    if (el) {
-      el.addEventListener('click', (e) => {
-        e.preventDefault();
-        appState.activeTab = tabName.toLowerCase();
-        
-        if (tabName === 'Tasks') {
-          appState.activeFilter = 'all';
-          appState.activeListId = 'all';
-        }
-        
-        // Remove active class from other elements
-        document.querySelectorAll('.sidebar-section .nav-item').forEach(btn => btn.classList.remove('active'));
-        el.classList.add('active');
-        
-        closeMobileSidebar();
-        renderApp();
-      });
-    }
   });
 
-  // Mobile Bottom Navigation Tab Switching
-  if (elements.mobileBottomNav) {
-    elements.mobileBottomNav.querySelectorAll('.bottom-nav-item[data-tab]').forEach(btn => {
-      btn.addEventListener('click', (e) => {
+  // Mobile Bottom Nav
+  if (el.mobileBottomNav) {
+    el.mobileBottomNav.querySelectorAll('.bottom-nav-item[data-tab]').forEach(btn => {
+      btn.addEventListener('click', e => {
         e.preventDefault();
         const tab = btn.getAttribute('data-tab');
         appState.activeTab = tab;
@@ -1724,1125 +2910,505 @@ function setupEventListeners() {
       });
     });
 
-    if (elements.bottomNavBtnMore) {
-      elements.bottomNavBtnMore.addEventListener('click', (e) => {
-        e.preventDefault();
-        elements.sidebar.classList.add('open');
-        elements.sidebarOverlay.classList.add('open');
-      });
-    }
-  }
-
-  // Theme Toggle Button (Sidebar footer)
-  if (elements.btnToggleTheme) {
-    elements.btnToggleTheme.addEventListener('click', (e) => {
+    el.bottomNavBtnMore.addEventListener('click', e => {
       e.preventDefault();
-      const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-      applyTheme(isDark ? 'light' : 'dark', true);
+      el.sidebar.classList.add('open');
+      el.sidebarOverlay.classList.add('open');
     });
   }
 
-  // Settings Modal Theme Buttons
-  if (elements.btnSetThemeLight) {
-    elements.btnSetThemeLight.addEventListener('click', (e) => {
-      e.preventDefault();
-      applyTheme('light', true);
-    });
-  }
-  if (elements.btnSetThemeDark) {
-    elements.btnSetThemeDark.addEventListener('click', (e) => {
-      e.preventDefault();
-      applyTheme('dark', true);
-    });
-  }
-  if (elements.btnSetThemeAuto) {
-    elements.btnSetThemeAuto.addEventListener('click', (e) => {
-      e.preventDefault();
-      applyTheme('auto', true);
-    });
-  }
+  // Quick Profile Switch from Sidebar Footer
+  el.currentUserBadge.addEventListener('click', () => {
+    switchUserProfile(appState.currentUser === 'Gus' ? 'Isa' : 'Gus');
+  });
 
-  // Dashboard Mural Note Preview click
-  if (elements.dashboardMuralPreview) {
-    elements.dashboardMuralPreview.addEventListener('click', () => {
-      appState.activeTab = 'notes';
-      renderApp();
+  // Top Utility Buttons: Sound, Theme, Copy WhatsApp Summary, History Drawer
+  el.btnToggleSound.addEventListener('click', () => {
+    const next = !isSoundEnabled();
+    setSoundEnabled(next);
+    updateSoundUI();
+    if (next) playSound('check');
+    showToast(next ? 'Efeitos sonoros ativados 🔊' : 'Som silenciado 🔇');
+  });
+
+  el.btnToggleTheme.addEventListener('click', () => {
+    const isCurrentlyLight = document.documentElement.getAttribute('data-theme') === 'light';
+    applyTheme(isCurrentlyLight ? 'dark' : 'light', true);
+    showToast(isCurrentlyLight ? 'Modo Quadro Escuro 🌙' : 'Modo Papel Claro ☀️');
+  });
+
+  el.btnCopySummary.addEventListener('click', () => {
+    if (!appState.dbData) return;
+    const { tasks, title } = appState.activeTab === 'tasks'
+      ? getBaseScopeTasks()
+      : { tasks: appState.dbData.tasks, title: 'LISTA DE TAREFAS' };
+    const summary = ifttt.buildWhatsAppSummary(tasks, title.toUpperCase());
+    copyTextSafe(summary)
+      .then(() => {
+        playSound('check');
+        showToast('Resumo copiado! Pronto para colar no WhatsApp 📋');
+      })
+      .catch(() => showToast('Não foi possível copiar automaticamente', 'error'));
+  });
+
+  // Activity Drawer
+  el.btnToggleHistory.addEventListener('click', () => {
+    el.activityDrawer.classList.add('open');
+    el.drawerOverlay.classList.add('open');
+  });
+  const closeDrawer = () => {
+    el.activityDrawer.classList.remove('open');
+    el.drawerOverlay.classList.remove('open');
+  };
+  el.btnCloseHistory.addEventListener('click', closeDrawer);
+  el.drawerOverlay.addEventListener('click', closeDrawer);
+
+  // Dashboard Shortcuts
+  el.dashboardMuralPreview.addEventListener('click', () => {
+    appState.activeTab = 'notes';
+    renderApp();
+  });
+  el.btnViewAllUrgent.addEventListener('click', () => {
+    appState.activeTab = 'tasks';
+    appState.activeFilter = 'all';
+    appState.activeListId = 'all';
+    appState.quickFilter = 'urgent';
+    renderApp();
+  });
+
+  // Tasks Toolbar: Search, Sort, View Mode, Person Filter, Status Filter, Quick Filters
+  el.inputSearchTasks.addEventListener('input', () => {
+    appState.searchQuery = el.inputSearchTasks.value;
+    renderTasks();
+  });
+  el.btnClearSearch.addEventListener('click', () => {
+    appState.searchQuery = '';
+    el.inputSearchTasks.value = '';
+    renderTasks();
+    el.inputSearchTasks.focus();
+  });
+  el.selectSortTasks.addEventListener('change', () => {
+    appState.sortBy = el.selectSortTasks.value;
+    renderTasks();
+  });
+
+  [el.btnViewModeBoard, el.btnViewModeList].forEach(btn => {
+    btn.addEventListener('click', () => {
+      appState.tasksViewMode = btn.getAttribute('data-view-mode');
+      localStorage.setItem('tasklist_view_mode', appState.tasksViewMode);
+      renderTasks();
     });
-  }
-  
-  // Quick Filters Inside Tasks View
-  elements.btnFilterMyTasks.addEventListener('click', () => {
+  });
+
+  document.querySelectorAll('.owner-filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      appState.ownerFilter = btn.getAttribute('data-owner-filter');
+      renderTasks();
+    });
+  });
+
+  document.querySelectorAll('.status-filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      appState.statusFilter = btn.getAttribute('data-status-filter');
+      renderTasks();
+    });
+  });
+
+  el.btnFilterMyTasks.addEventListener('click', () => {
     appState.quickFilter = appState.quickFilter === 'mine' ? 'none' : 'mine';
     renderTasks();
   });
-  
-  elements.btnFilterUrgentTasks.addEventListener('click', () => {
+  el.btnFilterUrgentTasks.addEventListener('click', () => {
     appState.quickFilter = appState.quickFilter === 'urgent' ? 'none' : 'urgent';
     renderTasks();
   });
-  
-  elements.btnClearQuickFilters.addEventListener('click', () => {
+  el.btnClearQuickFilters.addEventListener('click', () => {
     appState.quickFilter = 'none';
+    appState.ownerFilter = 'all';
+    appState.statusFilter = 'all';
+    appState.searchQuery = '';
+    el.inputSearchTasks.value = '';
     if (appState.activeFilter === 'date') {
       appState.activeFilter = 'all';
       appState.activeListId = 'all';
     }
     renderTasks();
   });
-  
-  // Calendar navigations
-  elements.btnPrevMonth.addEventListener('click', () => {
+  el.btnClearDateFilter.addEventListener('click', () => {
+    appState.activeFilter = 'all';
+    appState.activeListId = 'all';
+    renderTasks();
+  });
+
+  // Unified List Quick Add Form + Emoji Toggle + Quick Date Chips
+  el.btnQuickEmojiToggle.addEventListener('click', () => {
+    const visible = el.quickAddEmojiTray.style.display === 'flex';
+    el.quickAddEmojiTray.style.display = visible ? 'none' : 'flex';
+  });
+
+  document.querySelectorAll('[data-quick-date]').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const mode = chip.getAttribute('data-quick-date');
+      const d = new Date();
+      if (mode === 'tomorrow') d.setDate(d.getDate() + 1);
+      d.setHours(18, 0, 0, 0);
+      el.inputTaskDeadline.value = toLocalDatetimeInputValue(d.toISOString());
+    });
+  });
+
+  el.addTaskForm.addEventListener('submit', e => {
+    e.preventDefault();
+    const title = el.inputTaskTitle.value.trim();
+    if (!title) return;
+    const deadline = el.inputTaskDeadline.value ? new Date(el.inputTaskDeadline.value).toISOString() : null;
+    createTask({
+      title,
+      owner: el.selectTaskOwner.value,
+      priority: el.selectTaskPriority.value,
+      recurrence: el.selectTaskRecurrence.value,
+      deadline,
+      emoji: appState.selectedQuickAddEmoji,
+      svgKey: appState.selectedQuickAddEmoji === '✨' ? detectSvgKeyFromTitle(title) : null
+    });
+    el.inputTaskTitle.value = '';
+    el.inputTaskDeadline.value = '';
+    el.selectTaskRecurrence.value = 'none';
+  });
+
+  // Mobile Sticky Bottom Add Form
+  el.stickyAddTaskForm.addEventListener('submit', e => {
+    e.preventDefault();
+    const title = el.inputStickyTaskTitle.value.trim();
+    if (!title) return;
+    createTask({ title, owner: appState.ownerFilter !== 'all' ? appState.ownerFilter : 'Shared' });
+    el.inputStickyTaskTitle.value = '';
+  });
+
+  // Tasks Footer Bulk Actions
+  el.btnUncheckAll.addEventListener('click', async () => {
+    const { tasks } = getBaseScopeTasks();
+    const completed = tasks.filter(t => t.completed);
+    if (completed.length === 0) {
+      showToast('Nenhuma tarefa concluída para desmarcar');
+      return;
+    }
+    const ok = await confirmAction({
+      title: 'Desmarcar tarefas concluídas?',
+      description: `As ${completed.length} caixinhas marcadas voltarão a ficar pendentes, mantendo todas as tarefas cadastradas.`,
+      confirmLabel: 'Desmarcar Tudo'
+    });
+    if (!ok) return;
+
+    completed.forEach(t => { t.completed = false; t.completedBy = null; t.completedAt = null; });
+    playSound('uncheck');
+    saveDataAndRender(appState.dbData);
+    showToast('Todas as caixinhas foram desmarcadas!');
+  });
+
+  el.btnClearCompleted.addEventListener('click', async () => {
+    const { tasks } = getBaseScopeTasks();
+    const completedIds = new Set(tasks.filter(t => t.completed).map(t => t.id));
+    if (completedIds.size === 0) {
+      showToast('Nenhuma tarefa concluída para limpar');
+      return;
+    }
+    const ok = await confirmAction({
+      title: 'Limpar tarefas concluídas?',
+      description: `Isso removerá permanentemente ${completedIds.size} tarefa(s) já concluída(s) desta visualização.`,
+      confirmLabel: 'Limpar Concluídas',
+      danger: true
+    });
+    if (!ok) return;
+
+    appState.dbData.tasks = appState.dbData.tasks.filter(t => !completedIds.has(t.id));
+    saveDataAndRender(appState.dbData);
+    showToast(`${completedIds.size} tarefa(s) concluída(s) removida(s) 🧹`);
+  });
+
+  el.btnRestoreDefaults.addEventListener('click', async () => {
+    const ok = await confirmAction({
+      title: 'Restaurar lista de exemplo?',
+      description: 'No Modo Local, isso restaurará as tarefas, mural e metas de exemplo de Gustavo & Isabella.',
+      confirmLabel: 'Restaurar'
+    });
+    if (!ok) return;
+    db.resetLocalDataToStarter();
+    playSound('celebrate');
+    showToast('Lista de exemplo restaurada! ✨');
+  });
+
+  // Calendar Navigation & Day Panel
+  el.btnPrevMonth.addEventListener('click', () => {
     appState.currentMonth.setMonth(appState.currentMonth.getMonth() - 1);
     renderCalendar();
   });
-  
-  elements.btnNextMonth.addEventListener('click', () => {
+  el.btnNextMonth.addEventListener('click', () => {
     appState.currentMonth.setMonth(appState.currentMonth.getMonth() + 1);
     renderCalendar();
   });
-  
-  // Projects Modal Events
-  elements.btnOpenAddProjectModal.addEventListener('click', () => {
-    elements.addProjectModal.classList.add('open');
-    elements.inputProjectName.value = '';
-    elements.inputProjectTargetDate.value = '';
-    elements.inputProjectName.focus();
+  el.btnCalendarToday.addEventListener('click', () => {
+    appState.currentMonth = new Date();
+    appState.selectedCalendarDay = new Date();
+    renderCalendar();
   });
-  const closeAddProject = () => elements.addProjectModal.classList.remove('open');
-  elements.btnCloseAddProjectModal.addEventListener('click', closeAddProject);
-  elements.btnCancelAddProject.addEventListener('click', closeAddProject);
-  elements.btnSaveProject.addEventListener('click', handleCreateProject);
-  
-  // Mural Modal Events
-  elements.btnOpenAddNoteModal.addEventListener('click', () => {
-    elements.addNoteModal.classList.add('open');
-    elements.inputNoteText.value = '';
-    elements.inputNoteText.focus();
+  el.btnOpenDayInTasks.addEventListener('click', () => {
+    if (!appState.selectedCalendarDay) return;
+    appState.activeTab = 'tasks';
+    appState.activeFilter = 'date';
+    appState.selectedDate = new Date(appState.selectedCalendarDay);
+    renderApp();
   });
-  const closeAddNote = () => elements.addNoteModal.classList.remove('open');
-  elements.btnCloseAddNoteModal.addEventListener('click', closeAddNote);
-  elements.btnCancelAddNote.addEventListener('click', closeAddNote);
-  elements.btnSaveNote.addEventListener('click', handleCreateNote);
-  
-  // Wishlist Modal Events
-  elements.btnOpenAddWishModal.addEventListener('click', () => {
-    elements.addWishModal.classList.add('open');
-    elements.inputWishTitle.value = '';
-    elements.inputWishLink.value = '';
-    elements.inputWishNotes.value = '';
-    elements.inputWishTitle.focus();
+  el.calendarDayAddForm.addEventListener('submit', e => {
+    e.preventDefault();
+    const title = el.inputCalendarDayTask.value.trim();
+    if (!title || !appState.selectedCalendarDay) return;
+    const d = new Date(appState.selectedCalendarDay);
+    d.setHours(18, 0, 0, 0);
+    createTask({ title, owner: el.selectCalendarDayOwner.value, deadline: d.toISOString() });
+    el.inputCalendarDayTask.value = '';
   });
-  const closeAddWish = () => elements.addWishModal.classList.remove('open');
-  elements.btnCloseAddWishModal.addEventListener('click', closeAddWish);
-  elements.btnCancelAddWish.addEventListener('click', closeAddWish);
-  elements.btnSaveWish.addEventListener('click', handleCreateWish);
-}
 
-// Action: Switch Active User Profile
-function switchUserProfile(user) {
-  appState.currentUser = user;
-  const config = db.getSavedConfig();
-  if (config) {
-    db.saveConfig(config.firebaseConfig, config.secretKey, user);
-  }
-  db.initFirebase(); // reinit with correct user name
-  renderApp();
-  updateProfileBadgeUI();
-  
-  notifications.showNotification("Troca de Perfil", `Agora você está usando como ${user}!`);
-}
+  // Add List Modal
+  const openAddList = () => {
+    populateGroupSelect();
+    el.inputListName.value = '';
+    el.inputNewGroupName.value = '';
+    el.addListModal.classList.add('open');
+    setTimeout(() => el.inputListName.focus(), 40);
+  };
+  el.btnOpenAddListModal.addEventListener('click', openAddList);
+  el.btnDashboardOpenAddList.addEventListener('click', openAddList);
+  const closeAddList = () => el.addListModal.classList.remove('open');
+  el.btnCloseAddListModal.addEventListener('click', closeAddList);
+  el.btnCancelAddList.addEventListener('click', closeAddList);
+  el.selectListGroup.addEventListener('change', () => {
+    el.newGroupNameGroup.style.display = el.selectListGroup.value === 'NEW_GROUP' ? 'flex' : 'none';
+  });
+  el.btnSaveList.addEventListener('click', handleCreateList);
 
-// Action: Create List form processing
-function handleCreateList() {
-  const listName = elements.inputListName.value.trim();
-  if (!listName) return;
-  
-  const data = appState.dbData;
-  let groupId = elements.selectListGroup.value;
-  
-  // Check if we need to create a new group
-  if (groupId === 'NEW_GROUP') {
-    const newGroupName = elements.inputNewGroupName.value.trim();
-    if (!newGroupName) {
-      alert("Digite o nome do novo grupo.");
+  // Add Project Modal
+  el.btnOpenAddProjectModal.addEventListener('click', () => {
+    el.inputProjectName.value = '';
+    el.inputProjectTargetDate.value = '';
+    el.addProjectModal.classList.add('open');
+    setTimeout(() => el.inputProjectName.focus(), 40);
+  });
+  const closeAddProject = () => el.addProjectModal.classList.remove('open');
+  el.btnCloseAddProjectModal.addEventListener('click', closeAddProject);
+  el.btnCancelAddProject.addEventListener('click', closeAddProject);
+  el.btnSaveProject.addEventListener('click', handleCreateProject);
+
+  // Add Note Modal
+  el.btnOpenAddNoteModal.addEventListener('click', () => {
+    el.inputNoteText.value = '';
+    el.addNoteModal.classList.add('open');
+    setTimeout(() => el.inputNoteText.focus(), 40);
+  });
+  const closeAddNote = () => el.addNoteModal.classList.remove('open');
+  el.btnCloseAddNoteModal.addEventListener('click', closeAddNote);
+  el.btnCancelAddNote.addEventListener('click', closeAddNote);
+  el.btnSaveNote.addEventListener('click', handleCreateNote);
+
+  // Add Wish Modal
+  el.btnOpenAddWishModal.addEventListener('click', () => {
+    el.inputWishTitle.value = '';
+    el.inputWishPrice.value = '';
+    el.inputWishLink.value = '';
+    el.inputWishNotes.value = '';
+    el.addWishModal.classList.add('open');
+    setTimeout(() => el.inputWishTitle.focus(), 40);
+  });
+  const closeAddWish = () => el.addWishModal.classList.remove('open');
+  el.btnCloseAddWishModal.addEventListener('click', closeAddWish);
+  el.btnCancelAddWish.addEventListener('click', closeAddWish);
+  el.btnSaveWish.addEventListener('click', handleCreateWish);
+
+  // Settings Modal
+  el.btnOpenSettings.addEventListener('click', () => {
+    updateSettingsModalUI();
+    const iftttCfg = ifttt.getIftttConfig();
+    el.setupIftttKey.value = iftttCfg.key;
+    el.setupIftttEvent.value = iftttCfg.event;
+    el.settingsModal.classList.add('open');
+  });
+
+  const saveAndCloseSettings = () => {
+    ifttt.saveIftttConfig(el.setupIftttKey.value.trim(), el.setupIftttEvent.value.trim());
+    el.settingsModal.classList.remove('open');
+  };
+  el.btnCloseSettingsModal.addEventListener('click', saveAndCloseSettings);
+  el.btnConfirmCloseSettings.addEventListener('click', saveAndCloseSettings);
+
+  el.btnSwitchToGus.addEventListener('click', () => switchUserProfile('Gus'));
+  el.btnSwitchToIsa.addEventListener('click', () => switchUserProfile('Isa'));
+  el.btnSetThemeDark.addEventListener('click', () => applyTheme('dark', true));
+  el.btnSetThemeLight.addEventListener('click', () => applyTheme('light', true));
+  el.btnSetThemeAuto.addEventListener('click', () => applyTheme('auto', true));
+  el.btnSettingsToggleSound.addEventListener('click', () => {
+    const next = !isSoundEnabled();
+    setSoundEnabled(next);
+    updateSoundUI();
+    if (next) playSound('check');
+  });
+
+  el.btnEnableNotifications.addEventListener('click', () => {
+    notifications.requestPermission().then(res => {
+      updateSettingsModalUI();
+      if (res === 'granted') {
+        notifications.showNotification('Notificações Ativadas! 🔔', 'Vocês receberão alertas em tempo real.');
+        showToast('Notificações ativadas com sucesso! 🔔');
+      } else if (res === 'insecure') {
+        showToast('Notificações requerem HTTPS (GitHub Pages).', 'error');
+      } else if (res === 'unsupported') {
+        showToast('Navegador sem suporte (no iOS, adicione à Tela de Início).', 'error');
+      } else {
+        showToast('Notificações bloqueadas nas configurações do navegador.', 'error');
+      }
+    });
+  });
+
+  el.btnCopyInviteLink.addEventListener('click', () => {
+    const url = generateInviteLink();
+    if (!url) {
+      showToast('Conecte o Firebase primeiro para gerar um link de convite.');
       return;
     }
-    
-    // Create new group
-    const newGroup = {
-      id: 'g-' + Date.now(),
-      name: newGroupName,
-      createdAt: new Date().toISOString()
-    };
-    data.groups.push(newGroup);
-    groupId = newGroup.id;
-  }
-  
-  const listOwner = document.querySelector('input[name="list_owner"]:checked').value;
-  
-  // Create List
-  const newList = {
-    id: 'l-' + Date.now(),
-    name: listName,
-    groupId: groupId,
-    owner: listOwner,
-    createdAt: new Date().toISOString()
-  };
-  
-  data.lists.push(newList);
-  
-  // Log action
-  db.logAction(data, 'add_list', {
-    listId: newList.id,
-    listName: newList.name
+    copyTextSafe(url)
+      .then(() => showToast('Link de convite copiado! Envie para o seu par 💛'))
+      .catch(() => showToast('Erro ao copiar link', 'error'));
   });
-  
-  // Close Modal and update Firebase
-  elements.addListModal.classList.remove('open');
-  appState.activeListId = newList.id;
-  appState.activeFilter = 'list';
-  
-  saveDataAndRender(data);
-}
 
-// Action: Create Task form processing
-function handleCreateTask() {
-  const taskTitle = elements.inputTaskTitle.value.trim();
-  if (!taskTitle) return;
-  
-  const data = appState.dbData;
-  
-  // Determine list ID to attach to
-  let targetListId = appState.activeListId;
-  
-  // If active filter is 'all' or 'today', look for the first available list or fallback to default
-  if (appState.activeListId === 'all' || appState.activeListId === 'today') {
-    if (data.lists.length > 0) {
-      targetListId = data.lists[0].id;
-    } else {
-      alert("Crie uma lista no menu lateral antes de adicionar tarefas.");
-      return;
-    }
-  }
-  
-  const deadlineVal = elements.inputTaskDeadline.value;
-  const deadline = deadlineVal ? new Date(deadlineVal).toISOString() : null;
-  const owner = elements.selectTaskOwner.value;
-  
-  const newTask = {
-    id: 't-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
-    listId: targetListId,
-    title: taskTitle,
-    completed: false,
-    completedBy: null,
-    completedAt: null,
-    createdBy: appState.currentUser,
-    createdAt: new Date().toISOString(),
-    deadline: deadline,
-    owner: owner
-  };
-  
-  data.tasks.push(newTask);
-  
-  // Log action
-  const activeList = data.lists.find(l => l.id === targetListId);
-  db.logAction(data, 'add_task', {
-    taskId: newTask.id,
-    taskTitle: newTask.title,
-    listName: activeList ? activeList.name : 'Lista'
+  el.btnTestIfttt.addEventListener('click', () => {
+    ifttt.saveIftttConfig(el.setupIftttKey.value.trim(), el.setupIftttEvent.value.trim());
+    ifttt.fireTestWebhook(appState.dbData, appState.currentUser)
+      .then(() => showToast('Webhook IFTTT disparado com sucesso! ☀️'))
+      .catch(err => showToast('Erro no IFTTT: ' + err, 'error'));
   });
-  
-  // Clear inputs
-  elements.inputTaskTitle.value = '';
-  elements.inputTaskDeadline.value = '';
-  elements.selectTaskOwner.value = 'Shared';
-  
-  saveDataAndRender(data);
-}
 
-// Populate the group select element inside List modal
-function populateGroupSelect() {
-  const data = appState.dbData;
-  if (!data) return;
-  
-  let html = '';
-  data.groups.forEach(g => {
-    html += `<option value="${g.id}">${escapeHTML(g.name)}</option>`;
+  // JSON Backup Export & Import
+  el.btnExportBackup.addEventListener('click', () => {
+    if (!appState.dbData) return;
+    const blob = new Blob([JSON.stringify(appState.dbData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `tasklist-gus-isa-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('Backup JSON baixado! 💾');
   });
-  
-  html += `
-    <option value="" disabled>──────────</option>
-    <option value="NEW_GROUP">➕ Criar Novo Grupo...</option>
-  `;
-  
-  elements.selectListGroup.innerHTML = html;
-  elements.newGroupNameGroup.style.display = 'none'; // reset group input view
-}
 
-// Helper: close side nav on mobile
-function closeMobileSidebar() {
-  elements.sidebar.classList.remove('open');
-  elements.sidebarOverlay.classList.remove('open');
-}
-
-// Helper: Escape HTML string to avoid injection
-function escapeHTML(str) {
-  if (!str) return '';
-  return str.replace(/[&<>'"]/g, 
-    tag => ({
-      '&': '&amp;',
-      '<': '&lt;',
-      '>': '&gt;',
-      "'": '&#39;',
-      '"': '&quot;'
-    }[tag] || tag)
-  );
-}
-
-// Invite System Configuration & Helpers
-function generateInviteLink() {
-  const config = db.getSavedConfig();
-  if (!config) return null;
-  const payload = {
-    firebaseConfig: config.firebaseConfig,
-    secretKey: config.secretKey
-  };
-  const base64 = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
-  return window.location.origin + window.location.pathname + '?config=' + base64;
-}
-
-function handleIncomingInvite() {
-  const params = new URLSearchParams(window.location.search);
-  const configParam = params.get('config');
-  if (configParam) {
+  el.btnImportBackup.addEventListener('click', () => el.inputImportBackupFile.click());
+  el.inputImportBackupFile.addEventListener('change', async () => {
+    const file = el.inputImportBackupFile.files[0];
+    if (!file) return;
     try {
-      const decoded = JSON.parse(decodeURIComponent(escape(atob(configParam))));
-      if (decoded.firebaseConfig && decoded.secretKey) {
-        db.saveConfig(decoded.firebaseConfig, decoded.secretKey, 'Isa');
-        
-        // Remove the query parameter from URL
-        const newUrl = window.location.origin + window.location.pathname;
-        window.history.replaceState({}, document.title, newUrl);
-        
-        alert("Configuração importada com sucesso! Bem-vinda, Isa!");
-        window.location.reload();
-      }
-    } catch (e) {
-      console.error("Erro ao processar convite:", e);
-    }
-  }
-}
-
-// Calendar View Rendering
-function renderCalendar() {
-  const data = appState.dbData;
-  if (!data) return;
-  
-  const year = appState.currentMonth.getFullYear();
-  const month = appState.currentMonth.getMonth();
-  
-  // Set title
-  const monthNames = [
-    "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
-    "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
-  ];
-  elements.calendarMonthTitle.innerText = `${monthNames[month]} ${year}`;
-  
-  // Grid headers
-  const headers = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
-  let html = headers.map(h => `<div class="calendar-day-header">${h}</div>`).join('');
-  
-  // First day of month
-  const firstDayIndex = new Date(year, month, 1).getDay();
-  // Number of days in month
-  const totalDays = new Date(year, month + 1, 0).getDate();
-  // Number of days in previous month
-  const prevTotalDays = new Date(year, month, 0).getDate();
-  
-  // Previous month filler days
-  for (let i = firstDayIndex - 1; i >= 0; i--) {
-    const dayNum = prevTotalDays - i;
-    html += `
-      <div class="calendar-cell other-month">
-        <div class="calendar-date-number">${dayNum}</div>
-      </div>
-    `;
-  }
-  
-  // Current month days
-  const today = new Date();
-  for (let day = 1; day <= totalDays; day++) {
-    const cellDate = new Date(year, month, day);
-    const isTodayStr = cellDate.toDateString() === today.toDateString() ? 'today' : '';
-    
-    // Find tasks for this day
-    const dayTasks = data.tasks.filter(t => {
-      if (!t.deadline) return false;
-      const taskDate = new Date(t.deadline);
-      return taskDate.getFullYear() === year &&
-             taskDate.getMonth() === month &&
-             taskDate.getDate() === day;
-    });
-    
-    let dotsHtml = '';
-    if (dayTasks.length > 0) {
-      dotsHtml = `<div class="calendar-tasks-indicator">`;
-      dayTasks.forEach(t => {
-        let dotColor = '#64748b'; // Shared/Default
-        if (t.owner === 'Gus') dotColor = 'var(--color-gus)';
-        if (t.owner === 'Isa') dotColor = 'var(--color-isa)';
-        
-        const completedStyle = t.completed ? 'opacity: 0.4;' : '';
-        const titleText = escapeHTML(t.title) + (t.completed ? ' (Concluída)' : '');
-        
-        dotsHtml += `
-          <span class="calendar-task-dot" style="background-color: ${dotColor}; ${completedStyle}" title="${titleText}"></span>
-        `;
+      const text = await file.text();
+      const parsed = db.normalizeData(JSON.parse(text));
+      const ok = await confirmAction({
+        title: 'Importar backup JSON?',
+        description: `Substituir os dados atuais por este backup (${parsed.tasks.length} tarefas, ${parsed.lists.length} listas)?`,
+        confirmLabel: 'Importar Backup'
       });
-      dotsHtml += `</div>`;
-    }
-    
-    html += `
-      <div class="calendar-cell ${isTodayStr}" data-day="${day}" style="cursor: pointer;">
-        <div class="calendar-date-number">${day}</div>
-        ${dotsHtml}
-      </div>
-    `;
-  }
-  
-  // Next month filler days (fill up to multiples of 7)
-  const totalCellsUsed = firstDayIndex + totalDays;
-  const remainingCells = (7 - (totalCellsUsed % 7)) % 7;
-  for (let i = 1; i <= remainingCells; i++) {
-    html += `
-      <div class="calendar-cell other-month">
-        <div class="calendar-date-number">${i}</div>
-      </div>
-    `;
-  }
-  
-  elements.calendarGrid.innerHTML = html;
-  
-  // Click on a calendar day switches to tasks view with that day's filter
-  elements.calendarGrid.querySelectorAll('.calendar-cell:not(.other-month)').forEach(cell => {
-    cell.addEventListener('click', () => {
-      const dayNum = parseInt(cell.getAttribute('data-day'));
-      const targetDate = new Date(year, month, dayNum);
-      
-      appState.activeTab = 'tasks';
-      appState.activeFilter = 'date';
-      appState.selectedDate = targetDate;
-      
-      // Update sidebar active class
-      document.querySelectorAll('.sidebar-section .nav-item').forEach(el => el.classList.remove('active'));
-      elements.tabTasks.classList.add('active');
-      
-      renderApp();
-    });
-  });
-}
-
-// Projects (Goals) View Rendering & Helpers
-function renderProjects() {
-  const data = appState.dbData;
-  if (!data) return;
-  
-  const projects = data.projects || [];
-  let html = '';
-  
-  projects.forEach(project => {
-    const target = new Date(project.targetDate);
-    const diffDays = Math.ceil((target - new Date()) / (1000 * 60 * 60 * 24));
-    const daysRemainingText = diffDays > 0 ? `${diffDays} dias restantes` : (diffDays === 0 ? "Hoje!" : `Atrasado há ${Math.abs(diffDays)} dias`);
-    const countdownClass = diffDays <= 7 ? 'project-countdown-chip urgent' : 'project-countdown-chip';
-    
-    const projectTasks = data.tasks.filter(t => t.projectId === project.id);
-    const completed = projectTasks.filter(t => t.completed).length;
-    const total = projectTasks.length;
-    const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
-    
-    const tasksHtml = projectTasks.map(t => `
-      <div class="project-task-item" style="display: flex; align-items: center; justify-content: space-between; font-size: 13px; padding: 4px 0; border-bottom: 1px solid rgba(0,0,0,0.02);">
-        <span style="${t.completed ? 'text-decoration: line-through; opacity: 0.6;' : ''}">${escapeHTML(t.title)}</span>
-        <div style="display: flex; gap: 8px; align-items: center;">
-          <input type="checkbox" ${t.completed ? 'checked' : ''} class="project-task-toggle" data-task-id="${t.id}" style="cursor: pointer;">
-          <button class="project-task-delete" data-task-id="${t.id}" style="font-size: 11px; background: none; border: none; cursor: pointer; padding: 0;">🗑️</button>
-        </div>
-      </div>
-    `).join('');
-    
-    html += `
-      <div class="project-card" data-project-id="${project.id}">
-        <button class="project-delete-btn" data-project-id="${project.id}" style="border: none; background: none; cursor: pointer; font-size: 16px;">✕</button>
-        <span class="${countdownClass}">${daysRemainingText}</span>
-        <h4 class="project-title" style="margin: 0.5rem 0;">${escapeHTML(project.name)}</h4>
-        
-        <!-- Progress bar -->
-        <div class="project-progress">
-          <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px; color: var(--color-on-surface-variant);">
-            <span>Progresso</span>
-            <span>${percentage}% (${completed}/${total})</span>
-          </div>
-          <div style="height: 6px; background-color: var(--color-surface-container); border-radius: var(--radius-full); overflow: hidden;">
-            <div style="width: ${percentage}%; height: 100%; background-color: var(--color-primary); border-radius: var(--radius-full); transition: width 0.3s ease;"></div>
-          </div>
-        </div>
-        
-        <!-- Tasks list -->
-        <div class="project-tasks-list" style="margin-top: 1rem; display: flex; flex-direction: column; gap: 0.5rem; max-height: 150px; overflow-y: auto;">
-          ${tasksHtml || '<p style="font-size: 12px; color: var(--color-outline); font-style: italic; margin: 0;">Nenhuma tarefa vinculada.</p>'}
-        </div>
-        
-        <!-- Add task input -->
-        <div style="display: flex; gap: 6px; margin-top: auto; padding-top: 0.5rem; border-top: 1px dashed rgba(0,0,0,0.05);">
-          <input type="text" class="input-project-task-add" placeholder="Nova tarefa da meta..." style="flex: 1; font-size: 12px; padding: 4px 8px; border: var(--border-standard); border-radius: var(--radius-sm); outline: none;">
-          <button class="btn-project-task-add-submit" style="padding: 4px 8px; font-size: 12px; background-color: var(--color-primary); color: white; border: none; border-radius: var(--radius-sm); cursor: pointer;">+</button>
-        </div>
-      </div>
-    `;
-  });
-  
-  elements.projectsListContainer.innerHTML = html || '<p style="color: var(--color-outline); font-style: italic; width: 100%; text-align: center;">Nenhum projeto ou grande meta cadastrada.</p>';
-  
-  // Bind listeners
-  elements.projectsListContainer.querySelectorAll('.project-delete-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const pId = btn.getAttribute('data-project-id');
-      handleDeleteProject(pId);
-    });
-  });
-  
-  elements.projectsListContainer.querySelectorAll('.project-task-toggle').forEach(chk => {
-    chk.addEventListener('change', () => {
-      const taskId = chk.getAttribute('data-task-id');
-      toggleTaskCompletion(taskId, chk.checked);
-    });
-  });
-  
-  elements.projectsListContainer.querySelectorAll('.project-task-delete').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const taskId = btn.getAttribute('data-task-id');
-      handleDeleteTask(taskId);
-    });
-  });
-  
-  elements.projectsListContainer.querySelectorAll('.input-project-task-add').forEach(input => {
-    const card = input.closest('.project-card');
-    const pId = card.getAttribute('data-project-id');
-    const btn = card.querySelector('.btn-project-task-add-submit');
-    
-    const submitProjTask = () => {
-      const title = input.value.trim();
-      if (title) {
-        handleAddProjectTask(pId, title);
+      if (ok) {
+        appState.dbData = parsed;
+        saveDataAndRender(parsed);
+        showToast('Backup importado com sucesso! 🎉');
       }
+    } catch (err) {
+      showToast('Arquivo JSON inválido.', 'error');
+    } finally {
+      el.inputImportBackupFile.value = '';
+    }
+  });
+
+  el.btnConnectFirebaseFromLocal.addEventListener('click', () => {
+    el.settingsModal.classList.remove('open');
+    showSetupScreen();
+  });
+
+  el.btnResetApp.addEventListener('click', async () => {
+    const ok = await confirmAction({
+      title: 'Desconectar dispositivo?',
+      description: 'Você voltará para a tela inicial de configuração. Seus dados no Firebase permanecem intactos.',
+      confirmLabel: 'Desconectar',
+      danger: true
+    });
+    if (!ok) return;
+    db.clearConfig();
+    el.settingsModal.classList.remove('open');
+    showSetupScreen();
+  });
+
+  // Setup Overlay Controls
+  el.btnStartLocalMode.addEventListener('click', () => {
+    const userRadio = document.querySelector('input[name="setup_user"]:checked');
+    const user = userRadio ? userRadio.value : 'Gus';
+    db.enableLocalMode(user);
+    playSound('celebrate');
+    checkConfiguration();
+    showToast(`Bem-vindo(a), ${ownerDisplayName(user)}! Modo Local ativado ✨`);
+  });
+
+  el.btnCopyFirebaseRules.addEventListener('click', e => {
+    e.preventDefault();
+    e.stopPropagation();
+    copyTextSafe(el.firebaseRulesSnippet.textContent)
+      .then(() => showToast('Regras JSON copiadas! 📋'))
+      .catch(() => showToast('Erro ao copiar regras', 'error'));
+  });
+
+  el.setupForm.addEventListener('submit', e => {
+    e.preventDefault();
+    const user = document.querySelector('input[name="setup_user"]:checked').value;
+    const secret = el.setupSecretKey.value.trim().toLowerCase();
+    const projectId = el.setupProjectId.value.trim();
+
+    const firebaseConfig = {
+      apiKey: el.setupApiKey.value.trim(),
+      databaseURL: el.setupDbUrl.value.trim(),
+      projectId,
+      authDomain: `${projectId}.firebaseapp.com`,
+      storageBucket: `${projectId}.appspot.com`
     };
-    
-    input.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') {
-        submitProjTask();
+
+    db.saveConfig(firebaseConfig, secret, user);
+    checkConfiguration();
+  });
+
+  // Backdrop click closes modals
+  document.querySelectorAll('.modal-overlay').forEach(overlay => {
+    if (overlay.id === 'confirmModal') return; // handled in effects.js
+    overlay.addEventListener('click', e => {
+      if (e.target === overlay) overlay.classList.remove('open');
+    });
+  });
+
+  // Global Keyboard Shortcuts: '/' to search tasks, 'Escape' to close modals/drawers
+  document.addEventListener('keydown', e => {
+    const tag = (e.target.tagName || '').toLowerCase();
+    const typing = tag === 'input' || tag === 'textarea' || tag === 'select';
+
+    if (e.key === 'Escape') {
+      closeAllModals();
+      return;
+    }
+
+    if (e.key === '/' && !typing) {
+      e.preventDefault();
+      if (appState.activeTab !== 'tasks') {
+        appState.activeTab = 'tasks';
+        renderApp();
       }
-    });
-    btn.addEventListener('click', submitProjTask);
-  });
-}
-
-function handleCreateProject() {
-  const name = elements.inputProjectName.value.trim();
-  const targetDateVal = elements.inputProjectTargetDate.value;
-  if (!name || !targetDateVal) return;
-  
-  const data = appState.dbData;
-  const targetDate = new Date(targetDateVal).toISOString();
-  
-  const newProject = {
-    id: 'p-' + Date.now(),
-    name: name,
-    targetDate: targetDate,
-    createdAt: new Date().toISOString()
-  };
-  
-  data.projects = data.projects || [];
-  data.projects.push(newProject);
-  
-  db.logAction(data, 'add_project', {
-    projectId: newProject.id,
-    projectName: newProject.name
-  });
-  
-  elements.addProjectModal.classList.remove('open');
-  saveDataAndRender(data);
-}
-
-function handleDeleteProject(projectId) {
-  const data = appState.dbData;
-  data.projects = data.projects || [];
-  const project = data.projects.find(p => p.id === projectId);
-  if (!project) return;
-  
-  if (confirm(`Deseja mesmo remover a meta "${project.name}"?`)) {
-    data.projects = data.projects.filter(p => p.id !== projectId);
-    
-    // Dissociate tasks
-    data.tasks.forEach(t => {
-      if (t.projectId === projectId) {
-        delete t.projectId;
-      }
-    });
-    
-    db.logAction(data, 'delete_project', {
-      projectId: projectId,
-      projectName: project.name
-    });
-    
-    saveDataAndRender(data);
-  }
-}
-
-function handleAddProjectTask(projectId, title) {
-  if (!title.trim()) return;
-  const data = appState.dbData;
-  
-  const newTask = {
-    id: 't-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
-    listId: data.lists.length > 0 ? data.lists[0].id : 'l-geral',
-    projectId: projectId,
-    title: title,
-    completed: false,
-    completedBy: null,
-    completedAt: null,
-    createdBy: appState.currentUser,
-    createdAt: new Date().toISOString(),
-    deadline: null,
-    owner: 'Shared'
-  };
-  data.tasks.push(newTask);
-  
-  db.logAction(data, 'add_task', {
-    taskId: newTask.id,
-    taskTitle: newTask.title,
-    listName: 'Meta/Projeto'
-  });
-  
-  saveDataAndRender(data);
-}
-
-// Mural (Sticky Notes) View Rendering & Helpers
-function renderNotes() {
-  const data = appState.dbData;
-  if (!data) return;
-  
-  const notes = data.notes || [];
-  
-  // Sort notes: newest first
-  notes.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-  
-  let html = '';
-  notes.forEach((note, index) => {
-    const rotation = (index % 3 - 1) * (1.5 + (index % 2) * 0.5); // pseudo-random rotation
-    const dateStr = new Date(note.timestamp).toLocaleString('pt-BR', {
-      day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'
-    });
-    
-    const deleteBtn = `<button class="note-delete-btn" data-note-id="${note.id}" style="border: none; background: none; cursor: pointer; font-size: 14px; margin-left: 8px;">🗑️</button>`;
-    
-    html += `
-      <div class="note-card note-${note.color || 'yellow'}" style="transform: rotate(${rotation}deg); margin-top: 10px;">
-        <div class="note-text">${escapeHTML(note.text)}</div>
-        <div class="note-footer" style="display: flex; align-items: center; justify-content: space-between; font-size: 10px; color: var(--color-outline); margin-top: 1rem; border-top: 1px dashed rgba(0,0,0,0.08); padding-top: 0.5rem;">
-          <span>Por ${note.user} em ${dateStr}</span>
-          ${deleteBtn}
-        </div>
-      </div>
-    `;
-  });
-  
-  elements.notesGrid.innerHTML = html || '<p style="color: var(--color-outline); text-align: center; width: 100%; font-style: italic; margin-top: 2rem;">Nenhum recado no mural ainda. Deixe uma mensagem carinhosa!</p>';
-  
-  // Delete note listeners
-  elements.notesGrid.querySelectorAll('.note-delete-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const noteId = btn.getAttribute('data-note-id');
-      handleDeleteNote(noteId);
-    });
-  });
-}
-
-function handleCreateNote() {
-  const text = elements.inputNoteText.value.trim();
-  if (!text) return;
-  
-  const data = appState.dbData;
-  const colorInput = document.querySelector('input[name="note_color"]:checked');
-  const color = colorInput ? colorInput.value : 'yellow';
-  
-  const newNote = {
-    id: 'n-' + Date.now(),
-    user: appState.currentUser,
-    text: text,
-    color: color,
-    timestamp: new Date().toISOString()
-  };
-  
-  data.notes = data.notes || [];
-  data.notes.push(newNote);
-  
-  db.logAction(data, 'add_note', {
-    noteId: newNote.id,
-    noteText: newNote.text.substr(0, 15) + (newNote.text.length > 15 ? '...' : '')
-  });
-  
-  elements.inputNoteText.value = '';
-  elements.addNoteModal.classList.remove('open');
-  
-  saveDataAndRender(data);
-}
-
-function handleDeleteNote(noteId) {
-  const data = appState.dbData;
-  data.notes = data.notes || [];
-  const note = data.notes.find(n => n.id === noteId);
-  if (!note) return;
-  
-  if (confirm("Deseja mesmo remover este recado?")) {
-    data.notes = data.notes.filter(n => n.id !== noteId);
-    
-    db.logAction(data, 'delete_note', {
-      noteId: noteId,
-      noteText: note.text.substr(0, 15) + (note.text.length > 15 ? '...' : '')
-    });
-    
-    saveDataAndRender(data);
-  }
-}
-
-// Wishlist View Rendering & Helpers
-function renderWishlist() {
-  const data = appState.dbData;
-  if (!data) return;
-  
-  const wishes = data.wishlist || [];
-  
-  // Filter into Gus, Isa, Shared
-  const gusWishes = wishes.filter(w => w.user === 'Gus');
-  const isaWishes = wishes.filter(w => w.user === 'Isa');
-  const sharedWishes = wishes.filter(w => w.user === 'Shared');
-  
-  const renderGrid = (gridEl, list) => {
-    let html = list.map(wish => {
-      const linkHtml = wish.link ? `<a href="${escapeHTML(wish.link)}" target="_blank" class="btn-secondary" style="font-size: 11px; padding: 2px 6px; text-decoration: none; display: inline-block;">🔗 Link</a>` : '';
-      const notesHtml = wish.notes ? `<p style="font-size: 12px; color: var(--color-on-surface-variant); margin-top: 4px; font-style: italic; margin-bottom: 0;">${escapeHTML(wish.notes)}</p>` : '';
-      return `
-        <div class="wish-card" style="background-color: var(--color-surface); border: var(--border-standard); border-radius: var(--radius-lg); padding: 1rem; box-shadow: var(--shadow-level-1); display: flex; flex-direction: column; gap: 0.5rem; position: relative;">
-          <button class="wish-delete-btn" data-wish-id="${wish.id}" style="position: absolute; top: 0.5rem; right: 0.5rem; border: none; background: none; cursor: pointer; color: var(--color-outline); opacity: 0.5;">✕</button>
-          <h4 style="margin: 0; font-size: 15px; font-weight: 700; word-break: break-word; padding-right: 1.5rem;">${escapeHTML(wish.title)}</h4>
-          ${notesHtml}
-          <div style="margin-top: auto; display: flex; align-items: center; justify-content: space-between; padding-top: 0.5rem; border-top: 1px dashed rgba(0,0,0,0.02);">
-            ${linkHtml}
-            <span style="font-size: 9px; color: var(--color-outline);">De: ${wish.createdBy || 'Sistema'}</span>
-          </div>
-        </div>
-      `;
-    }).join('');
-    
-    gridEl.innerHTML = html || '<p style="color: var(--color-outline); font-style: italic; font-size: 12px; margin: 10px 0;">Nenhum desejo listado.</p>';
-  };
-  
-  renderGrid(elements.wishlistGus, gusWishes);
-  renderGrid(elements.wishlistIsa, isaWishes);
-  renderGrid(elements.wishlistShared, sharedWishes);
-  
-  // Delete wish listeners
-  document.querySelectorAll('.wish-delete-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const wishId = btn.getAttribute('data-wish-id');
-      handleDeleteWish(wishId);
-    });
-  });
-}
-
-function handleCreateWish() {
-  const title = elements.inputWishTitle.value.trim();
-  if (!title) return;
-  
-  const data = appState.dbData;
-  const link = elements.inputWishLink.value.trim();
-  const notes = elements.inputWishNotes.value.trim();
-  const ownerInput = document.querySelector('input[name="wish_owner"]:checked');
-  const owner = ownerInput ? ownerInput.value : 'Shared';
-  
-  const newWish = {
-    id: 'w-' + Date.now(),
-    user: owner,
-    title: title,
-    link: link,
-    notes: notes,
-    createdBy: appState.currentUser,
-    timestamp: new Date().toISOString()
-  };
-  
-  data.wishlist = data.wishlist || [];
-  data.wishlist.push(newWish);
-  
-  db.logAction(data, 'add_wish', {
-    wishId: newWish.id,
-    wishTitle: newWish.title
-  });
-  
-  // Reset form and close modal
-  elements.inputWishTitle.value = '';
-  elements.inputWishLink.value = '';
-  elements.inputWishNotes.value = '';
-  elements.addWishModal.classList.remove('open');
-  
-  saveDataAndRender(data);
-}
-
-function handleDeleteWish(wishId) {
-  const data = appState.dbData;
-  data.wishlist = data.wishlist || [];
-  const wish = data.wishlist.find(w => w.id === wishId);
-  if (!wish) return;
-  
-  if (confirm(`Deseja mesmo remover "${wish.title}" de desejos?`)) {
-    data.wishlist = data.wishlist.filter(w => w.id !== wishId);
-    
-    db.logAction(data, 'delete_wish', {
-      wishId: wishId,
-      wishTitle: wish.title
-    });
-    
-    saveDataAndRender(data);
-  }
-}
-
-// Stats & Achievements Rendering
-function renderStats() {
-  const data = appState.dbData;
-  if (!data) return;
-  
-  // 1. Calculate weekly completions
-  const now = new Date();
-  const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-  
-  const completedTasks = data.tasks.filter(t => t.completed);
-  
-  const gusCompletions = completedTasks.filter(t => t.completedBy === 'Gus').length;
-  const isaCompletions = completedTasks.filter(t => t.completedBy === 'Isa').length;
-  
-  // Completions in the last week
-  const weeklyCompleted = completedTasks.filter(t => {
-    if (!t.completedAt) return false;
-    return new Date(t.completedAt) >= oneWeekAgo;
-  });
-  
-  const gusWeekly = weeklyCompleted.filter(t => t.completedBy === 'Gus').length;
-  const isaWeekly = weeklyCompleted.filter(t => t.completedBy === 'Isa').length;
-  
-  let championText = "Empate técnico esta semana! ⚖️";
-  if (gusWeekly > isaWeekly) {
-    championText = `🧔 Gus é o campeão da semana com ${gusWeekly} tarefas! 🏆`;
-  } else if (isaWeekly > gusWeekly) {
-    championText = `👩 Isa é a campeã da semana com ${isaWeekly} tarefas! 🏆`;
-  }
-  
-  // Render weekly summary block
-  elements.statsSummaryContainer.innerHTML = `
-    <div class="stats-summary-card" style="background-color: var(--color-surface); padding: 1.5rem; border-radius: var(--radius-xl); border: var(--border-standard); box-shadow: var(--shadow-level-1); text-align: center; width: 100%;">
-      <h4 style="margin: 0 0 0.5rem 0; font-size: 16px; color: var(--color-on-surface-variant);">Campeão da Semana</h4>
-      <p style="font-size: 18px; font-weight: 700; margin: 0; color: var(--color-primary);">${championText}</p>
-      
-      <div style="display: flex; justify-content: space-around; margin-top: 1.5rem; border-top: 1px dashed rgba(0,0,0,0.05); padding-top: 1.25rem;">
-        <div>
-          <div style="font-size: 24px;">🧔</div>
-          <div style="font-size: 12px; color: var(--color-outline);">Gus (Total)</div>
-          <div style="font-size: 20px; font-weight: 700;">${gusCompletions}</div>
-          <div style="font-size: 11px; color: var(--color-on-surface-variant);">(Esta semana: ${gusWeekly})</div>
-        </div>
-        <div>
-          <div style="font-size: 24px;">👩</div>
-          <div style="font-size: 12px; color: var(--color-outline);">Isa (Total)</div>
-          <div style="font-size: 20px; font-weight: 700;">${isaCompletions}</div>
-          <div style="font-size: 11px; color: var(--color-on-surface-variant);">(Esta semana: ${isaWeekly})</div>
-        </div>
-      </div>
-    </div>
-  `;
-  
-  // 2. Compute Achievements
-  const notesCount = (data.notes || []).length;
-  const projectsCount = (data.projects || []).length;
-  const listsCount = data.lists.length;
-  
-  // Count reactions received by current user (reactions inside history logs where log.user is currentUser)
-  let reactionsReceived = 0;
-  (data.history || []).forEach(log => {
-    if (log.user === appState.currentUser && log.reactions) {
-      reactionsReceived += Object.keys(log.reactions).length;
+      el.inputSearchTasks.focus();
     }
   });
-  
-  const totalCompletions = completedTasks.filter(t => t.completedBy === appState.currentUser).length;
-  
-  const achievements = [
-    {
-      id: "first-steps",
-      title: "Primeiros Passos",
-      desc: "Concluiu sua primeira tarefa",
-      icon: "🌱",
-      unlocked: totalCompletions >= 1
-    },
-    {
-      id: "strong-partner",
-      title: "Parceria Forte",
-      desc: "Concluiu 10 tarefas no aplicativo",
-      icon: "🤝",
-      unlocked: totalCompletions >= 10
-    },
-    {
-      id: "super-productive",
-      title: "Super Produtivo",
-      desc: "Concluiu 30 tarefas no aplicativo",
-      icon: "⚡",
-      unlocked: totalCompletions >= 30
-    },
-    {
-      id: "organizer",
-      title: "Mestre da Organização",
-      desc: "Criou pelo menos 3 listas diferentes",
-      icon: "🗂️",
-      unlocked: listsCount >= 3
-    },
-    {
-      id: "mural-master",
-      title: "Mensageiro do Amor",
-      desc: "Deixou recados fofos no mural",
-      icon: "💖",
-      unlocked: notesCount >= 2
-    },
-    {
-      id: "dreamer",
-      title: "Sonhador do Casal",
-      desc: "Criou pelo menos 2 grandes metas",
-      icon: "✈️",
-      unlocked: projectsCount >= 2
-    },
-    {
-      id: "love-reaction",
-      title: "Amor em Gestos",
-      desc: "Recebeu 3 reações do seu parceiro",
-      icon: "💝",
-      unlocked: reactionsReceived >= 3
-    }
-  ];
-  
-  elements.achievementsGrid.innerHTML = achievements.map(ach => {
-    const stateClass = ach.unlocked ? 'unlocked' : 'locked';
-    return `
-      <div class="achievement-card ${stateClass}" style="display: flex; align-items: center; gap: 1rem; padding: 1rem; border: var(--border-standard); border-radius: var(--radius-lg); opacity: ${ach.unlocked ? '1' : '0.5'}; transition: box-shadow 0.2s;">
-        <span style="font-size: 2.25rem;">${ach.icon}</span>
-        <div>
-          <h4 style="margin: 0; font-size: 14px; font-weight: 700;">${escapeHTML(ach.title)}</h4>
-          <p style="margin: 4px 0 0 0; font-size: 11px; color: var(--color-on-surface-variant);">${escapeHTML(ach.desc)}</p>
-          <span style="font-size: 9px; font-weight: 700; color: ${ach.unlocked ? 'var(--color-success)' : 'var(--color-outline)'}; margin-top: 4px; display: inline-block;">
-            ${ach.unlocked ? '🔓 Desbloqueada' : '🔒 Bloqueada'}
-          </span>
-        </div>
-      </div>
-    `;
-  }).join('');
-}
 
-// Subtasks completion & comment additions helpers
-function toggleSubtaskCompletion(taskId, subtaskId, isChecked) {
-  const data = appState.dbData;
-  const task = data.tasks.find(t => t.id === taskId);
-  if (!task) return;
-  
-  task.subtasks = task.subtasks || [];
-  const subtask = task.subtasks.find(st => st.id === subtaskId);
-  if (subtask) {
-    subtask.completed = isChecked;
-    saveDataAndRender(data);
-  }
-}
-
-function handleDeleteSubtask(taskId, subtaskId) {
-  const data = appState.dbData;
-  const task = data.tasks.find(t => t.id === taskId);
-  if (!task) return;
-  
-  task.subtasks = task.subtasks || [];
-  task.subtasks = task.subtasks.filter(st => st.id !== subtaskId);
-  saveDataAndRender(data);
-}
-
-function handleAddSubtask(taskId, title) {
-  const data = appState.dbData;
-  const task = data.tasks.find(t => t.id === taskId);
-  if (!task) return;
-  
-  task.subtasks = task.subtasks || [];
-  const newSubtask = {
-    id: 'st-' + Date.now(),
-    title: title,
-    completed: false
-  };
-  task.subtasks.push(newSubtask);
-  saveDataAndRender(data);
-}
-
-function handleAddComment(taskId, text) {
-  const data = appState.dbData;
-  const task = data.tasks.find(t => t.id === taskId);
-  if (!task) return;
-  
-  task.comments = task.comments || [];
-  const newComment = {
-    id: 'c-' + Date.now(),
-    user: appState.currentUser,
-    text: text,
-    timestamp: new Date().toISOString()
-  };
-  task.comments.push(newComment);
-  saveDataAndRender(data);
-}
-
-function handleTaskPriorityChange(taskId, priority) {
-  const data = appState.dbData;
-  const task = data.tasks.find(t => t.id === taskId);
-  if (!task) return;
-  
-  task.priority = priority;
-  saveDataAndRender(data);
-}
-
-function handleTaskRecurrenceChange(taskId, recurrence) {
-  const data = appState.dbData;
-  const task = data.tasks.find(t => t.id === taskId);
-  if (!task) return;
-  
-  task.recurrence = recurrence;
-  saveDataAndRender(data);
-}
-
-function handleTaskOwnerChange(taskId, owner) {
-  const data = appState.dbData;
-  const task = data.tasks.find(t => t.id === taskId);
-  if (!task) return;
-  
-  task.owner = owner;
-  saveDataAndRender(data);
-}
-
-function handleTaskDeadlineChange(taskId, deadline) {
-  const data = appState.dbData;
-  const task = data.tasks.find(t => t.id === taskId);
-  if (!task) return;
-  
-  task.deadline = deadline;
-  saveDataAndRender(data);
-}
-
-// History drawer reactions and undo actions helpers
-function handleHistoryReaction(logId, emoji) {
-  const data = appState.dbData;
-  const log = data.history.find(h => h.id === logId);
-  if (!log) return;
-  
-  log.reactions = log.reactions || {};
-  
-  if (log.reactions[appState.currentUser] === emoji) {
-    delete log.reactions[appState.currentUser];
-  } else {
-    log.reactions[appState.currentUser] = emoji;
-  }
-  
-  saveDataAndRender(data);
-}
-
-function handleHistoryUndo(logId) {
-  const data = appState.dbData;
-  const logIndex = data.history.findIndex(h => h.id === logId);
-  if (logIndex === -1) return;
-  
-  const log = data.history[logIndex];
-  
-  if (log.action === 'complete_task') {
-    const task = data.tasks.find(t => t.id === log.taskId);
-    if (task) {
-      task.completed = false;
-      task.completedBy = null;
-      task.completedAt = null;
-    }
-  } else if (log.action === 'add_task') {
-    data.tasks = data.tasks.filter(t => t.id !== log.taskId);
-  } else if (log.action === 'add_list') {
-    data.lists = data.lists.filter(l => l.id !== log.listId);
-    data.tasks = data.tasks.filter(t => t.listId !== log.listId);
-  } else if (log.action === 'add_note') {
-    data.notes = (data.notes || []).filter(n => n.id !== log.noteId);
-  } else if (log.action === 'add_wish') {
-    data.wishlist = (data.wishlist || []).filter(w => w.id !== log.wishId);
-  }
-  
-  // Remove the action log and log the undo
-  data.history.splice(logIndex, 1);
-  
-  db.logAction(data, 'undo_action', {
-    undoAction: log.action,
-    undoUser: log.user
-  });
-  
-  saveDataAndRender(data);
-}
-
-// Recurrence checker and cloner logic (silent background cron)
-function checkRecurrenceAndClone(data) {
-  if (!data || !data.tasks) return;
-  
-  const now = new Date();
-  const tasksToProcess = [...data.tasks];
-  
-  tasksToProcess.forEach(task => {
-    if (task.completed && task.recurrence && task.recurrence !== 'none') {
-      const completedAt = task.completedAt ? new Date(task.completedAt) : new Date(task.createdAt);
-      let shouldClone = false;
-      
-      const diffTime = now - completedAt;
-      const diffDays = diffTime / (1000 * 60 * 60 * 24);
-      
-      if (task.recurrence === 'daily' && diffDays >= 1) {
-        shouldClone = true;
-      } else if (task.recurrence === 'weekly' && diffDays >= 7) {
-        shouldClone = true;
-      } else if (task.recurrence === 'monthly' && diffDays >= 30) {
-        shouldClone = true;
-      }
-      
-      if (shouldClone) {
-        const clonedTask = {
-          ...task,
-          id: 't-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
-          completed: false,
-          completedBy: null,
-          completedAt: null,
-          createdAt: now.toISOString(),
-          lastRecurrentTrigger: now.toISOString()
-        };
-        
-        // Remove recurrence from completed task so it doesn't duplicate cycle
-        const originalRecurrence = task.recurrence;
-        task.recurrence = 'none';
-        
-        data.tasks.push(clonedTask);
-        
-        db.logAction(data, 'add_task', {
-          taskId: clonedTask.id,
-          taskTitle: clonedTask.title + ` (Recorrente ${originalRecurrence})`,
-          listName: 'Rotina Automática'
-        });
-      }
-    }
+  // Re-evaluate mobile header layout on resize
+  window.addEventListener('resize', () => {
+    if (appState.dbData) renderApp();
   });
 }
+
+// Start App
+init();

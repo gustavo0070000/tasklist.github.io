@@ -1,11 +1,11 @@
 {
-  "name": "tasklist",
+  "name": "Lista de Tarefas — Gustavo & Isabella",
   "short_name": "tasklist",
-  "description": "Lista de tarefas colaborativa para Gus & Isa",
+  "description": "Lista de tarefas colaborativa em tempo real para Gustavo & Isabella",
   "start_url": "./index.html",
   "display": "standalone",
-  "background_color": "#f8f9ff",
-  "theme_color": "#4648d4",
+  "background_color": "#181a20",
+  "theme_color": "#181a20",
   "orientation": "portrait",
   "icons": [
     {

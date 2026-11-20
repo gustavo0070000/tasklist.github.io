@@ -1,4 +1,4 @@
-const CACHE_NAME = 'tasklist-v2'; // Bumped version to force cache invalidation
+const CACHE_NAME = 'tasklist-v3';
 const ASSETS = [
   './',
   './index.html',
@@ -6,6 +6,9 @@ const ASSETS = [
   './js/app.js',
   './js/firebase-db.js',
   './js/notifications.js',
+  './js/ifttt-webhook.js',
+  './js/illustrations.js',
+  './js/effects.js',
   './manifest.json',
   './assets/icon-192.png',
   './assets/icon-512.png',
@@ -16,9 +19,8 @@ const ASSETS = [
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => {
-      console.log('Caching assets (Install)');
       return cache.addAll(ASSETS);
-    }).then(() => self.skipWaiting()) // Force active service worker immediately
+    }).then(() => self.skipWaiting())
   );
 });
 
@@ -29,21 +31,19 @@ self.addEventListener('activate', event => {
       return Promise.all(
         keys.filter(key => key !== CACHE_NAME).map(key => caches.delete(key))
       );
-    }).then(() => self.clients.claim()) // Claim clients immediately to use the new service worker
+    }).then(() => self.clients.claim())
   );
 });
 
 // Fetch Event - Network First Strategy
 self.addEventListener('fetch', event => {
-  // Ignore non-HTTP and external API requests (e.g. Firebase websockets)
   if (!event.request.url.startsWith(self.location.origin)) {
     return;
   }
-  
+
   event.respondWith(
     fetch(event.request)
       .then(response => {
-        // If we got a valid response, cache it
         if (response && response.status === 200) {
           const responseClone = response.clone();
           caches.open(CACHE_NAME).then(cache => {
@@ -52,9 +52,6 @@ self.addEventListener('fetch', event => {
         }
         return response;
       })
-      .catch(() => {
-        // If network request fails (offline), return cached version
-        return caches.match(event.request);
-      })
+      .catch(() => caches.match(event.request))
   );
 });
