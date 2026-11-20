@@ -55,7 +55,8 @@ function resolveConnection() {
   const configParam = params.get('config');
   if (configParam) {
     try {
-      const decoded = JSON.parse(decodeURIComponent(escape(atob(decodeURIComponent(configParam)))));
+      const b64 = decodeURIComponent(configParam).replace(/ /g, '+'); // '+' pode virar espaço na URL
+      const decoded = JSON.parse(decodeURIComponent(escape(atob(b64))));
       if (decoded.firebaseConfig && decoded.secretKey) {
         db.useConfigOverride(decoded.firebaseConfig, decoded.secretKey, 'Gus');
         return 'firebase';
