@@ -33,7 +33,9 @@ export function checkAndTriggerMorningSummary(data, updateDbCallback) {
   const now = new Date();
   if (now.getHours() < 6) return;
 
-  const todayDateStr = now.toISOString().split('T')[0];
+  // Usa a data LOCAL (não UTC): no Brasil, toISOString() já vira "amanhã" às 21h,
+  // o que disparava o "Resumo Matinal" na noite anterior e pulava a manhã.
+  const todayDateStr = localDateKey(now);
   if (data.lastSummarySent === todayDateStr) return;
 
   data.lastSummarySent = todayDateStr;
@@ -119,6 +121,13 @@ function buildTextSummary(data) {
   }
 
   return text;
+}
+
+export function localDateKey(date = new Date()) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
 
 function formatShortDate(isoString) {

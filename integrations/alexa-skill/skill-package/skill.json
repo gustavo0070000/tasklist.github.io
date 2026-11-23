@@ -1,0 +1,51 @@
+{
+  "manifest": {
+    "publishingInformation": {
+      "locales": {
+        "pt-BR": {
+          "name": "Nossa Lista",
+          "summary": "Lista de tarefas, agenda e recados do Gustavo e da Isabella.",
+          "description": "Abre o painel do casal na Echo Show e permite adicionar tarefas, itens do mercado, recados e consultar a agenda do dia por voz.",
+          "examplePhrases": [
+            "Alexa, abre nossa lista",
+            "Alexa, pede pra nossa lista comprar leite",
+            "Alexa, pergunta pra nossa lista o que tem pra hoje"
+          ],
+          "keywords": [
+            "tarefas",
+            "casal",
+            "agenda"
+          ]
+        }
+      },
+      "isAvailableWorldwide": false,
+      "distributionCountries": [
+        "BR"
+      ],
+      "category": "ORGANIZERS_AND_ASSISTANTS"
+    },
+    "apis": {
+      "custom": {
+        "interfaces": [
+          {
+            "type": "ALEXA_PRESENTATION_HTML"
+          }
+        ]
+      }
+    },
+    "manifestVersion": "1.0",
+    "privacyAndCompliance": {
+      "allowsPurchases": false,
+      "usesPersonalInfo": false,
+      "isChildDirected": false,
+      "isExportCompliant": true,
+      "containsAds": false,
+      "locales": {
+        "pt-BR": {
+          "privacyPolicyUrl": "",
+          "termsOfUseUrl": ""
+        }
+      }
+    }
+  }
+}

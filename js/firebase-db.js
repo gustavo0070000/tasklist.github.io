@@ -63,10 +63,23 @@ export function normalizeData(raw) {
 
 // --- Configuration Helpers ---
 
+// Configuração em memória (usada pelo Modo Painel quando aberto pela Alexa,
+// onde o localStorage pode estar indisponível). Tem prioridade sobre o salvo.
+let configOverride = null;
+
+export function useConfigOverride(firebaseConfig, secretKey, currentUser = 'Gus') {
+  configOverride = { firebaseConfig, secretKey, currentUser };
+}
+
+function safeGet(key) {
+  try { return localStorage.getItem(key); } catch (e) { return null; }
+}
+
 export function getSavedConfig() {
-  const configStr = localStorage.getItem('tasklist_firebase_config');
-  const secretKey = localStorage.getItem('tasklist_secret_key');
-  const currentUser = localStorage.getItem('tasklist_current_user') || 'Gus';
+  if (configOverride) return configOverride;
+  const configStr = safeGet('tasklist_firebase_config');
+  const secretKey = safeGet('tasklist_secret_key');
+  const currentUser = safeGet('tasklist_current_user') || 'Gus';
 
   if (!configStr || !secretKey) return null;
 
@@ -99,7 +112,8 @@ export function clearConfig() {
 }
 
 export function getCurrentUser() {
-  return localStorage.getItem('tasklist_current_user') || 'Gus';
+  if (configOverride) return configOverride.currentUser;
+  return safeGet('tasklist_current_user') || 'Gus';
 }
 
 export function setCurrentUser(user) {
@@ -112,7 +126,7 @@ export function setCurrentUser(user) {
 // --- Local / Offline Mode Support ---
 
 export function isLocalMode() {
-  return !getSavedConfig() && localStorage.getItem(LOCAL_MODE_KEY) === 'true';
+  return !getSavedConfig() && safeGet(LOCAL_MODE_KEY) === 'true';
 }
 
 export function enableLocalMode(user = 'Gus') {
@@ -400,4 +414,106 @@ export function getStarterLocalTemplate() {
       }
     ]
   };
+}
+
+// ============================================================================
+// INTEGRAÇÕES — nós SEPARADOS do nó principal `tasks/{secretKey}`
+// ----------------------------------------------------------------------------
+// O app grava `tasks/{secretKey}` inteiro com set() e o normalizeData() descarta
+// campos desconhecidos. Por isso tudo que é escrito por fora (sincronizador do
+// Google Agenda, configurações compartilhadas, tokens de push) mora em nós
+// irmãos, que nenhum salvamento do app consegue apagar:
+//   calendar/{secretKey}  -> eventos do Google Agenda (escrito pelo Apps Script)
+//   settings/{secretKey}  -> configurações compartilhadas (clima, push, etc.)
+//   push/{secretKey}/{user}/{tokenId} -> tokens FCM de cada aparelho
+// ============================================================================
+
+const LOCAL_CALENDAR_KEY = 'tasklist_local_calendar_v1';
+const LOCAL_SETTINGS_KEY = 'tasklist_local_settings_v1';
+let localSettingsListeners = [];
+
+function sectionRef(section) {
+  if (!isInitialized && !initFirebase()) return null;
+  const config = currentConfig || getSavedConfig();
+  if (!config) return null;
+  return firebase.database().ref(`${section}/${config.secretKey}`);
+}
+
+export function normalizeCalendar(raw) {
+  const base = raw && typeof raw === 'object' ? raw : {};
+  const events = toArray(base.events)
+    .filter(e => e && e.start && e.title !== undefined)
+    .map(e => ({
+      id: e.id,
+      title: e.title || '(sem título)',
+      start: e.start,
+      end: e.end || e.start,
+      allDay: Boolean(e.allDay),
+      owner: e.owner || 'Shared',
+      location: e.location || '',
+      calendarName: e.calendarName || ''
+    }))
+    .sort((a, b) => new Date(a.start) - new Date(b.start));
+  return { updatedAt: base.updatedAt || null, events };
+}
+
+export function listenToCalendar(callback) {
+  if (isLocalMode()) {
+    let raw = null;
+    try { raw = JSON.parse(localStorage.getItem(LOCAL_CALENDAR_KEY) || 'null'); } catch (e) { raw = null; }
+    setTimeout(() => callback(normalizeCalendar(raw)), 0);
+    return () => {};
+  }
+  const ref = sectionRef('calendar');
+  if (!ref) return () => {};
+  const handler = snap => callback(normalizeCalendar(snap.val()));
+  ref.on('value', handler, err => console.warn('Calendário indisponível (verifique as regras do Firebase):', err && err.message));
+  return () => ref.off('value', handler);
+}
+
+export function listenToSettings(callback) {
+  if (isLocalMode()) {
+    let raw = {};
+    try { raw = JSON.parse(localStorage.getItem(LOCAL_SETTINGS_KEY) || '{}'); } catch (e) { raw = {}; }
+    localSettingsListeners.push(callback);
+    setTimeout(() => callback(raw || {}), 0);
+    return () => { localSettingsListeners = localSettingsListeners.filter(fn => fn !== callback); };
+  }
+  const ref = sectionRef('settings');
+  if (!ref) return () => {};
+  const handler = snap => callback(snap.val() || {});
+  ref.on('value', handler, err => console.warn('Configurações indisponíveis (verifique as regras do Firebase):', err && err.message));
+  return () => ref.off('value', handler);
+}
+
+// Atualiza um sub-caminho das configurações compartilhadas (ex: 'weather')
+export function updateSettings(path, value) {
+  if (isLocalMode()) {
+    let raw = {};
+    try { raw = JSON.parse(localStorage.getItem(LOCAL_SETTINGS_KEY) || '{}') || {}; } catch (e) { raw = {}; }
+    raw[path] = value;
+    localStorage.setItem(LOCAL_SETTINGS_KEY, JSON.stringify(raw));
+    localSettingsListeners.forEach(cb => cb(raw));
+    return Promise.resolve();
+  }
+  const ref = sectionRef('settings');
+  if (!ref) return Promise.reject(new Error('Firebase não inicializado'));
+  return ref.child(path).set(value === undefined ? null : value);
+}
+
+export function savePushToken(user, token, meta = {}) {
+  if (isLocalMode()) return Promise.resolve();
+  const ref = sectionRef('push');
+  if (!ref) return Promise.reject(new Error('Firebase não inicializado'));
+  // chave estável derivada do token (Firebase não aceita . # $ [ ] / nas chaves)
+  const key = token.replace(/[^a-zA-Z0-9_-]/g, '').slice(-40);
+  return ref.child(user).child(key).set({
+    token,
+    updatedAt: new Date().toISOString(),
+    ...meta
+  });
+}
+
+export function getActiveConfig() {
+  return currentConfig || getSavedConfig();
 }

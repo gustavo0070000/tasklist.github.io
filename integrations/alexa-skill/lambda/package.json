@@ -1,0 +1,8 @@
+{
+  "name": "tasklist-alexa-skill",
+  "version": "1.0.0",
+  "description": "Skill da Alexa do tasklist (Gustavo & Isabella): abre o Modo Painel na Echo Show e aceita comandos de voz.",
+  "main": "index.js",
+  "license": "MIT",
+  "dependencies": {}
+}

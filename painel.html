@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Painel da Casa — Gustavo &amp; Isabella</title>
+  <meta name="description" content="Modo Painel (Echo Show 15 / TV): agenda do casal, tarefas de cada um, clima e recados em tela cheia.">
+  <meta name="theme-color" content="#181a20">
+
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/png" href="assets/favicon.png">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/painel.css">
+</head>
+<body class="painel-body">
+
+  <canvas id="confettiCanvas" class="confetti-canvas" aria-hidden="true"></canvas>
+
+  <!-- Tela exibida quando o painel ainda não sabe qual banco usar -->
+  <div id="pnConnect" class="pn-connect" hidden>
+    <div class="pn-connect-card">
+      <h1>📺 Modo Painel</h1>
+      <p>Este aparelho ainda não está conectado ao banco de vocês.</p>
+      <ol>
+        <li>No celular, abra o app → <strong>Configurações</strong> → <strong>Modo Painel</strong>.</li>
+        <li>Toque em <strong>Copiar link p/ Alexa</strong>.</li>
+        <li>Abra esse link aqui (ou coloque na skill da Alexa).</li>
+      </ol>
+      <a href="index.html" class="btn-tactile btn-primary">Voltar ao app</a>
+    </div>
+  </div>
+
+  <div id="pnStage" class="pn-stage">
+    <!-- Cabeçalho: relógio, recado do mural, clima -->
+    <header class="pn-header">
+      <div class="pn-clock">
+        <span id="pnTime" class="pn-time">--:--</span>
+        <span id="pnDate" class="pn-date">Carregando...</span>
+      </div>
+
+      <button type="button" id="pnMural" class="pn-mural" hidden>
+        <span class="pn-mural-label">💌 <span id="pnMuralAuthor">Recado</span></span>
+        <span id="pnMuralText" class="pn-mural-text"></span>
+      </button>
+
+      <div id="pnWeather" class="pn-weather" hidden></div>
+    </header>
+
+    <!-- Grade principal: agenda | Gustavo | Isabella | Ambos -->
+    <main class="pn-grid">
+      <section class="pn-card pn-agenda" aria-label="Agenda">
+        <div class="pn-card-head">
+          <h2 class="pn-card-title">📅 Hoje</h2>
+          <span id="pnAgendaCount" class="pn-pill"></span>
+        </div>
+        <div id="pnToday" class="pn-agenda-list"></div>
+        <div class="pn-upcoming-wrap">
+          <h3 class="pn-subtitle">Próximos dias</h3>
+          <div id="pnUpcoming" class="pn-upcoming"></div>
+        </div>
+      </section>
+
+      <section class="pn-card pn-person gus" data-owner="Gus" aria-label="Tarefas do Gustavo"></section>
+      <section class="pn-card pn-person isa" data-owner="Isa" aria-label="Tarefas da Isabella"></section>
+      <section class="pn-card pn-person shared" data-owner="Shared" aria-label="Tarefas de Ambos"></section>
+    </main>
+
+    <!-- Rodapé: progresso geral, sequência, metas, dica de voz, status -->
+    <footer class="pn-footer">
+      <div class="pn-progress">
+        <span id="pnProgressLabel" class="pn-progress-label">0 de 0 hoje</span>
+        <div class="pn-progress-track">
+          <div id="pnProgressGus" class="pn-progress-fill gus"></div>
+          <div id="pnProgressIsa" class="pn-progress-fill isa"></div>
+          <div id="pnProgressShared" class="pn-progress-fill shared"></div>
+        </div>
+      </div>
+      <span id="pnStreak" class="pn-pill pn-streak" hidden></span>
+      <span id="pnGoal" class="pn-pill pn-goal" hidden></span>
+      <span class="pn-voice-hint">🎙️ “Alexa, pede pra <strong>nossa lista</strong> adicionar…”</span>
+      <span class="pn-sync"><span id="pnSyncDot" class="pn-sync-dot"></span><span id="pnSyncText">Conectando...</span></span>
+      <a href="index.html" id="pnBackToApp" class="pn-back" title="Voltar ao app">✕</a>
+    </footer>
+  </div>
+
+  <!-- Quem concluiu? (tarefas de Ambos) -->
+  <div id="pnWhoModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="pnWhoTitle">
+    <div class="modal modal-sm pn-who">
+      <div class="modal-header">
+        <h3 id="pnWhoTitle" class="modal-title">Quem concluiu?</h3>
+      </div>
+      <div class="modal-content">
+        <p id="pnWhoTask" class="pn-who-task"></p>
+        <div class="pn-who-options">
+          <button type="button" class="pn-who-btn gus" data-who="Gus">👦🏻 Gustavo</button>
+          <button type="button" class="pn-who-btn isa" data-who="Isa">👩🏻 Isabella</button>
+          <button type="button" class="pn-who-btn shared" data-who="Shared">💛 Os dois</button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" id="pnWhoCancel" class="btn-tactile btn-surface-sm">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Adicionar tarefa pelo painel -->
+  <div id="pnAddModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="pnAddTitle">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="pnAddTitle" class="modal-title">Nova tarefa</h3>
+      </div>
+      <form id="pnAddForm" class="modal-content modal-form" onsubmit="return false;">
+        <input type="text" id="pnAddInput" class="form-control" placeholder="O que precisa ser feito?" autocomplete="off" required>
+        <label class="pn-add-today"><input type="checkbox" id="pnAddToday" checked> Para hoje</label>
+        <div class="modal-footer">
+          <button type="button" id="pnAddCancel" class="btn-tactile btn-surface-sm">Cancelar</button>
+          <button type="submit" class="btn-tactile btn-primary">Adicionar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="pnDimmer" class="pn-dimmer" aria-hidden="true"></div>
+
+  <div id="appToast" class="app-toast pn-toast" role="status" aria-live="polite">
+    <span id="appToastText"></span>
+    <button type="button" id="appToastAction" class="toast-action-btn" style="display: none;">Desfazer</button>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+  <script type="module" src="js/painel.js"></script>
+</body>
+</html>

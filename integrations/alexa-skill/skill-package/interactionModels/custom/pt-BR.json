@@ -1,0 +1,251 @@
+{
+  "interactionModel": {
+    "languageModel": {
+      "invocationName": "nossa lista",
+      "intents": [
+        {
+          "name": "AdicionarTarefaIntent",
+          "slots": [
+            {
+              "name": "tarefa",
+              "type": "AMAZON.SearchQuery"
+            }
+          ],
+          "samples": [
+            "adicionar {tarefa}",
+            "adiciona {tarefa}",
+            "adicione {tarefa}",
+            "anotar {tarefa}",
+            "anota {tarefa}",
+            "colocar {tarefa}",
+            "coloca {tarefa}",
+            "nova tarefa {tarefa}",
+            "criar tarefa {tarefa}",
+            "lembrar de {tarefa}",
+            "lembra de {tarefa}",
+            "incluir {tarefa}"
+          ]
+        },
+        {
+          "name": "MercadoIntent",
+          "slots": [
+            {
+              "name": "item",
+              "type": "AMAZON.SearchQuery"
+            }
+          ],
+          "samples": [
+            "comprar {item}",
+            "compra {item}",
+            "colocar no mercado {item}",
+            "coloca no mercado {item}",
+            "adicionar no mercado {item}",
+            "adiciona no mercado {item}",
+            "lista do mercado {item}",
+            "precisamos comprar {item}",
+            "acabou {item}"
+          ]
+        },
+        {
+          "name": "HojeIntent",
+          "slots": [],
+          "samples": [
+            "o que tem pra hoje",
+            "o que tem para hoje",
+            "o que temos hoje",
+            "o que temos pra hoje",
+            "qual a agenda de hoje",
+            "agenda de hoje",
+            "minha agenda",
+            "nossa agenda",
+            "quais são as tarefas",
+            "quais as tarefas de hoje",
+            "o que falta fazer",
+            "o que falta",
+            "resumo do dia",
+            "me dá o resumo",
+            "como está o dia"
+          ]
+        },
+        {
+          "name": "ConcluirTarefaIntent",
+          "slots": [
+            {
+              "name": "tarefa",
+              "type": "AMAZON.SearchQuery"
+            }
+          ],
+          "samples": [
+            "marcar como feita {tarefa}",
+            "marca como feita {tarefa}",
+            "concluir {tarefa}",
+            "conclui {tarefa}",
+            "terminei {tarefa}",
+            "terminamos {tarefa}",
+            "já fiz {tarefa}",
+            "já fizemos {tarefa}",
+            "finalizar {tarefa}",
+            "feito {tarefa}",
+            "pronto {tarefa}"
+          ]
+        },
+        {
+          "name": "RecadoIntent",
+          "slots": [
+            {
+              "name": "recado",
+              "type": "AMAZON.SearchQuery"
+            }
+          ],
+          "samples": [
+            "deixar um recado {recado}",
+            "deixa um recado {recado}",
+            "deixar recado {recado}",
+            "recado {recado}",
+            "escreve no mural {recado}",
+            "escrever no mural {recado}"
+          ]
+        },
+        {
+          "name": "CarinhoIntent",
+          "slots": [
+            {
+              "name": "pessoa",
+              "type": "PESSOA"
+            },
+            {
+              "name": "carinho",
+              "type": "CARINHO"
+            }
+          ],
+          "samples": [
+            "mandar um {carinho} pra {pessoa}",
+            "manda um {carinho} pra {pessoa}",
+            "mandar um {carinho} para {pessoa}",
+            "manda um {carinho} para {pessoa}",
+            "mandar {carinho} pra {pessoa}",
+            "manda {carinho} pra {pessoa}",
+            "dizer {carinho} pra {pessoa}",
+            "diz {carinho} pra {pessoa}",
+            "mandar carinho pra {pessoa}",
+            "manda carinho pra {pessoa}"
+          ]
+        },
+        {
+          "name": "AbrirPainelIntent",
+          "slots": [],
+          "samples": [
+            "abrir o painel",
+            "abre o painel",
+            "mostrar o painel",
+            "mostra o painel",
+            "mostrar a lista",
+            "mostra a lista",
+            "abrir a tela",
+            "mostra a tela"
+          ]
+        },
+        {
+          "name": "AMAZON.HelpIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.StopIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.CancelIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.NavigateHomeIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.FallbackIntent",
+          "samples": []
+        }
+      ],
+      "types": [
+        {
+          "name": "PESSOA",
+          "values": [
+            {
+              "id": "Gus",
+              "name": {
+                "value": "gustavo",
+                "synonyms": [
+                  "gus",
+                  "o gustavo",
+                  "o gus",
+                  "meu marido",
+                  "meu namorado",
+                  "ele"
+                ]
+              }
+            },
+            {
+              "id": "Isa",
+              "name": {
+                "value": "isabella",
+                "synonyms": [
+                  "isa",
+                  "a isa",
+                  "a isabella",
+                  "isabela",
+                  "minha esposa",
+                  "minha namorada",
+                  "ela"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "CARINHO",
+          "values": [
+            {
+              "id": "beijo",
+              "name": {
+                "value": "beijo",
+                "synonyms": [
+                  "beijinho",
+                  "beijão"
+                ]
+              }
+            },
+            {
+              "id": "abraco",
+              "name": {
+                "value": "abraço",
+                "synonyms": [
+                  "abraço apertado",
+                  "abraçinho"
+                ]
+              }
+            },
+            {
+              "id": "te amo",
+              "name": {
+                "value": "te amo",
+                "synonyms": [
+                  "eu te amo"
+                ]
+              }
+            },
+            {
+              "id": "saudade",
+              "name": {
+                "value": "saudade",
+                "synonyms": [
+                  "saudades",
+                  "tô com saudade"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

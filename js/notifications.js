@@ -68,6 +68,15 @@ export function showNotification(title, body) {
   }
 }
 
+function displayActor(log) {
+  if (log.via === 'alexa' && log.action !== 'nudge') return 'Alexa';
+  if (log.user === 'Gus') return 'Gustavo';
+  if (log.user === 'Isa') return 'Isabella';
+  if (log.via === 'painel') return 'O painel';
+  if (log.user === 'Shared') return 'Vocês';
+  return log.user || 'Alguém';
+}
+
 // Check history logs for new activities by the OTHER user
 export function checkNewActivities(history, currentUser) {
   if (!history || history.length === 0) return;
@@ -90,7 +99,7 @@ export function checkNewActivities(history, currentUser) {
 
     const externalLogs = newLogs.filter(log => log.user !== currentUser);
     if (externalLogs.length > 0) {
-      const logToNotify = externalLogs[0];
+      const logToNotify = { ...externalLogs[0], user: displayActor(externalLogs[0]) };
       const title = 'Tasklist — Gustavo & Isabella';
       let body = '';
 
