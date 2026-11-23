@@ -24,7 +24,11 @@ function fbPut(path, value) { return fbRequest_('put', path, value); }
 function fbPatch(path, value) { return fbRequest_('patch', path, value); }
 function fbDelete(path) { return fbRequest_('delete', path); }
 
-function secret_() { return cfg('SECRET_KEY'); }
+function secret_() { return String(cfg('SECRET_KEY') || '').trim().toLowerCase(); }
+
+function escapeHtml_(s) {
+  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
 
 // Firebase devolve arrays como array OU objeto (quando há buracos)
 function toEntries_(node) {

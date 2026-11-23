@@ -225,7 +225,6 @@ textarea:focus-visible {
 
 .app-container {
   position: relative;
-  z-index: 1;
   display: flex;
   width: 100vw;
   height: 100vh;
@@ -548,6 +547,8 @@ textarea:focus-visible {
    ========================================================================== */
 
 .main-wrapper {
+  position: relative;
+  z-index: 1;
   flex: 1;
   min-width: 0;
   display: flex;
@@ -3846,6 +3847,14 @@ textarea.form-control {
   .sidebar.open {
     transform: translateX(0);
   }
+  .sidebar-footer {
+    padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+  }
+  .sidebar-footer #btnOpenSettings {
+    width: 42px;
+    height: 42px;
+    flex-shrink: 0;
+  }
 
   .mobile-menu-btn,
   .mobile-only {
@@ -4532,12 +4541,14 @@ textarea.form-control {
   gap: 0.4rem;
 }
 .city-result-btn {
-  padding: 0.35rem 0.7rem;
+  padding: 0.42rem 0.8rem;
   border-radius: var(--radius-pill);
   background: var(--bg-surface-2);
+  color: var(--text-main);
   border: 2px solid var(--border-color);
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   font-weight: 700;
+  cursor: pointer;
 }
 .city-result-btn:hover { background: var(--accent-amber); color: #0f172a; }
 

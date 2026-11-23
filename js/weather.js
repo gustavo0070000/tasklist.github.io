@@ -93,15 +93,38 @@ function summarizeWeather(raw, name) {
   };
 }
 
-export async function searchCity(query) {
-  const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=6&language=pt&format=json`;
+async function queryGeocoding(name) {
+  const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(name)}&count=6&language=pt&format=json`;
   const res = await fetch(url);
   if (!res.ok) throw new Error('Geocoding HTTP ' + res.status);
   const json = await res.json();
   return (json.results || []).map(r => ({
     name: r.name,
+    admin1: r.admin1 || '',
+    countryCode: r.country_code || '',
     label: [r.name, r.admin1, r.country_code].filter(Boolean).join(', '),
     lat: Math.round(r.latitude * 1000) / 1000,
     lon: Math.round(r.longitude * 1000) / 1000
   }));
+}
+
+export async function searchCity(query) {
+  const clean = String(query || '').trim();
+  if (clean.length < 2) return [];
+  let results = await queryGeocoding(clean);
+  if (results.length === 0 && /[,-/]/.test(clean)) {
+    const parts = clean.split(/[,-/]/).map(p => p.trim()).filter(Boolean);
+    if (parts[0] && parts[0].length >= 2) {
+      results = await queryGeocoding(parts[0]);
+      const hint = (parts[1] || '').toLowerCase();
+      if (hint && results.length > 1) {
+        results.sort((a, b) => {
+          const aMatch = (a.admin1 + ' ' + a.countryCode).toLowerCase().includes(hint) ? 0 : 1;
+          const bMatch = (b.admin1 + ' ' + b.countryCode).toLowerCase().includes(hint) ? 0 : 1;
+          return aMatch - bMatch;
+        });
+      }
+    }
+  }
+  return results.map(({ name, label, lat, lon }) => ({ name, label, lat, lon }));
 }

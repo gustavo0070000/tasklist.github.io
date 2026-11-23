@@ -8,7 +8,7 @@ function aCadaMinuto() {
   try {
     try { processarHistorico_(); } catch (e) { Logger.log('Histórico: ' + e.message); }
     try { lembretesDePrazo_(); } catch (e) { Logger.log('Lembretes: ' + e.message); }
-    try { if (cfg('TELEGRAM_BOT_TOKEN')) processarTelegram(); } catch (e) { Logger.log('Telegram: ' + e.message); }
+    try { if (cfg('TELEGRAM_BOT_TOKEN') && typeof processarTelegram === 'function') processarTelegram(); } catch (e) { Logger.log('Telegram: ' + e.message); }
   } finally {
     lock.releaseLock();
   }
@@ -63,13 +63,15 @@ function processarHistorico_() {
     if (!texto) return;
 
     destinatarios_(log).forEach(function (user) {
-      enviarPush(user, 'Tasklist — Gustavo & Isabella', texto, log.action === 'nudge' ? 'tasklist-nudge' : 'tasklist-alert');
-      if ((cfg('TELEGRAM_NOTIFY_ACTIONS') || []).indexOf(log.action) !== -1 && log.via !== 'telegram') {
+      if (typeof enviarPush === 'function') {
+        enviarPush(user, 'Tasklist — Gustavo & Isabella', texto, log.action === 'nudge' ? 'tasklist-nudge' : 'tasklist-alert');
+      }
+      if ((cfg('TELEGRAM_NOTIFY_ACTIONS') || []).indexOf(log.action) !== -1 && log.via !== 'telegram' && typeof enviarTelegram === 'function' && typeof telegramDoUsuario_ === 'function') {
         enviarTelegram(telegramDoUsuario_(user), escapeHtml_(texto));
       }
     });
 
-    if (log.action === 'nudge' && cfg('ANNOUNCE_NUDGES')) {
+    if (log.action === 'nudge' && cfg('ANNOUNCE_NUDGES') && typeof anunciarNaEcho === 'function') {
       anunciarNaEcho(nomeDoAutor_(log) + ' mandou um carinho: ' + String(log.nudgeText || '').replace(/[^\p{L}\p{N}\s!?.,]/gu, '').trim());
     }
   });
@@ -92,8 +94,10 @@ function lembretesDePrazo_() {
     var texto = '⏰ "' + t.title + '" vence às ' + hora;
     var users = t.owner === 'Gus' || t.owner === 'Isa' ? [t.owner] : ['Gus', 'Isa'];
     users.forEach(function (u) {
-      enviarPush(u, 'Lembrete de tarefa', texto, 'tasklist-due-' + t.id);
-      if (cfg('TELEGRAM_BOT_TOKEN')) enviarTelegram(telegramDoUsuario_(u), escapeHtml_(texto));
+      if (typeof enviarPush === 'function') enviarPush(u, 'Lembrete de tarefa', texto, 'tasklist-due-' + t.id);
+      if (cfg('TELEGRAM_BOT_TOKEN') && typeof enviarTelegram === 'function' && typeof telegramDoUsuario_ === 'function') {
+        enviarTelegram(telegramDoUsuario_(u), escapeHtml_(texto));
+      }
     });
     lembrados[t.id] = now;
     mudou = true;

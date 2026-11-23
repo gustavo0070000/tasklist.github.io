@@ -64,9 +64,7 @@ function telegramDoUsuario_(user) {
   return users[user] || '';
 }
 
-function escapeHtml_(s) {
-  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
+// escapeHtml_ agora fica em Firebase.gs (arquivo obrigatório) para evitar ReferenceError quando Messaging.gs não for usado.
 
 // ---------- Echo falando (Voice Monkey v3) ----------
 function anunciarNaEcho(texto) {

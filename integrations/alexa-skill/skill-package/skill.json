@@ -28,7 +28,14 @@
       "custom": {
         "interfaces": [
           {
-            "type": "ALEXA_PRESENTATION_HTML"
+            "type": "ALEXA_PRESENTATION_APL",
+            "supportedViewports": [
+              { "mode": "HUB", "shape": "RECTANGLE", "minWidth": 1024, "maxWidth": 1920, "minHeight": 600, "maxHeight": 1280 },
+              { "mode": "HUB", "shape": "RECTANGLE", "minWidth": 960, "maxWidth": 1280, "minHeight": 480, "maxHeight": 800 },
+              { "mode": "HUB", "shape": "ROUND", "minWidth": 480, "maxWidth": 480, "minHeight": 480, "maxHeight": 480 },
+              { "mode": "TV", "shape": "RECTANGLE", "minWidth": 960, "maxWidth": 1920, "minHeight": 540, "maxHeight": 1080 },
+              { "mode": "MOBILE", "shape": "RECTANGLE", "minWidth": 600, "maxWidth": 1280, "minHeight": 400, "maxHeight": 960 }
+            ]
           }
         ]
       }

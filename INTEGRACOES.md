@@ -151,20 +151,23 @@ No app (celular): **Configurações → Modo Painel → Copiar link p/ Alexa**. 
 ### 7.2 Teste rápido no navegador da Echo
 "Alexa, abre o Silk" → digite o link. Funciona, mas a Echo volta para a tela inicial depois de um tempo. Para deixar de verdade na tela, use a skill.
 
-### 7.3 Skill "nossa lista" (recomendado)
-1. Entre no [Alexa Developer Console](https://developer.amazon.com/alexa/console/ask) com **a mesma conta Amazon da Echo** → **Create Skill**:
+### 7.3 Skill "nossa lista" (recomendado — funciona na Echo Show 15 E na Echo Dot)
+1. Entre no [Alexa Developer Console](https://developer.amazon.com/alexa/console/ask) com **a mesma conta Amazon das suas Echos** → **Create Skill**:
    - Nome: `Nossa Lista` · Idioma: **Portuguese (BR)** · Tipo: **Custom** · Hospedagem: **Alexa-hosted (Node.js)** · Template: *Start from scratch*.
 2. **Build → Interaction Model → JSON Editor** → cole `integrations/alexa-skill/skill-package/interactionModels/custom/pt-BR.json` → **Save** → **Build Model**.
-3. **Build → Interfaces** → ative **Alexa Web API for Games** → **Save Interfaces** → **Build Model** de novo.
-4. **Code** → substitua o `index.js` e o `package.json` pelos desta pasta (`integrations/alexa-skill/lambda`) e crie `config.js` e `firebase.js`. No `config.js`, preencha `FIREBASE_URL`, `SECRET_KEY` e `PANEL_URL` (o link do passo 7.1) → **Deploy**.
-5. **Test** → mude para **Development**.
-6. Na Echo: **"Alexa, abre nossa lista"**.
+3. **Build → Interfaces**:
+   - **DESATIVE** *Alexa Web API for Games* (essa interface bloqueia a Echo Dot e pode dar *"esta skill não é compatível com este dispositivo"* na Echo Show 15!).
+   - **ATIVE** **Alexa Presentation Language (APL)** e marque todos os viewports (Hub Landscape, TV, etc.) → **Save Interfaces** → **Build Model** de novo.
+4. **Code** → substitua o `index.js`, `firebase.js` e `package.json` pelos desta pasta (`integrations/alexa-skill/lambda`) e confira o `config.js` (`FIREBASE_URL` e `SECRET_KEY` em minúsculas, igual à exibida em Configurações → Banco de Dados no app) → **Deploy**.
+5. **Test** → mude o seletor do topo para **Development** (e confirme que o idioma da skill é **Portuguese (BR)**, o mesmo das suas Echos).
+6. Na **Echo Show 15**: **"Alexa, abre nossa lista"** → abre o painel visual interativo (Agenda de Hoje + Mural + 3 cartões de Gustavo, Isabella e Ambos; toque em qualquer tarefa na tela para concluir!).
+7. Na **Echo Dot**: **"Alexa, abre nossa lista"** ou **"Alexa, pede pra nossa lista comprar leite"** → funciona 100% por voz!
 
-> ℹ️ A Amazon só **publica** skills da Web API que sejam jogos. Por isso esta skill fica **em desenvolvimento**, funcionando só nos aparelhos da sua conta, que é exatamente o que vocês precisam. Não envie para certificação.
+> ℹ️ Se você quiser abrir também o painel web completo (`painel.html`) em tela cheia na Echo Show 15, basta dizer **"Alexa, abre o Silk"** e salvar o link do passo 7.1 nos favoritos do navegador.
 
 **Deixar o painel sempre aberto:** no app da Alexa → **Rotinas → +**. Faça uma rotina "Quando: Horário, todos os dias 6:00" com a ação **Personalizado: "abre nossa lista"**, escolhendo a Echo Show 15 como dispositivo. Crie outras nos horários em que vocês mais usam (ex.: 12h e 18h). Se alguém usar timer, música etc., o painel fecha. É só falar "Alexa, abre nossa lista".
 
-**Comandos de voz** (com o painel aberto, dá pra falar só "Alexa, …" + o comando):
+**Comandos de voz** (funcionam tanto na Echo Show 15 quanto na Echo Dot):
 
 | Fale | O que acontece |
 |---|---|
@@ -194,10 +197,10 @@ O iPhone ainda não permite que web apps apareçam no menu Compartilhar.
 
 | Sintoma | O que verificar |
 |---|---|
-| "Aguardando o sincronizador" no app | Rode `testarTudo` no Apps Script e leia o registro. `Sem acesso à agenda de Isabella` = falta aceitar o compartilhamento (2.1). |
+| "Aguardando o sincronizador" no app | Rode `testarTudo` no Apps Script e leia o registro. Confira se a `SECRET_KEY` no `Config.gs` é idêntica à chave mostrada em **Configurações → Banco de Dados** no app e se as Regras do Firebase (`calendar` e `settings`) foram publicadas. `Sem acesso à agenda de Isabella` = Isabella precisa compartilhar a agenda com a conta do Gustavo e ele aceitar no e-mail. |
 | `Firebase … 401/403` no Apps Script | A conta Google que roda o script precisa ser **proprietária/editora** do projeto Firebase. |
-| Erro ao salvar cidade/push no app | As regras da seção 1 não foram publicadas. |
+| Erro ao salvar cidade/push no app | As regras da seção 1 (`settings`) não foram publicadas no Firebase Realtime Database. |
 | Push não chega | Rode `testarTudo` e veja a linha "Push falhou". Se aparecer `PERMISSION_DENIED`/`SERVICE_DISABLED`, ative a **Firebase Cloud Messaging API** no Google Cloud do projeto. No iPhone, o app precisa estar na Tela de Início. |
 | Painel mostra "não está conectado" | Use o link **Copiar link p/ Alexa**, não o endereço puro do `painel.html`. |
-| "Alexa, abre nossa lista" só fala, não mostra | A interface **Alexa Web API for Games** não foi ativada (7.3 passo 3) ou o modelo não foi recompilado. |
+| Alexa diz *"esta skill não é compatível com este dispositivo"* | Em **Build → Interfaces**, **desative** *Alexa Web API for Games*, **ative** *Alexa Presentation Language (APL)*, clique em **Save Interfaces** → **Build Model** → **Deploy** no código. |
 | Echo não fala os carinhos | Confira o token/ID do Voice Monkey, o horário de silêncio e a cota de 200/mês. |

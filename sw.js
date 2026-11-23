@@ -1,4 +1,4 @@
-const CACHE_NAME = 'tasklist-v5';
+const CACHE_NAME = 'tasklist-v6';
 const ASSETS = [
   './',
   './index.html',
@@ -41,14 +41,14 @@ self.addEventListener('activate', event => {
   );
 });
 
-// Fetch Event - Network First Strategy
+// Fetch Event - Network First Strategy (bypass stale HTTP cache)
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET' || !event.request.url.startsWith(self.location.origin)) {
     return;
   }
 
   event.respondWith(
-    fetch(event.request)
+    fetch(event.request, { cache: 'no-cache' })
       .then(response => {
         if (response && response.status === 200) {
           const responseClone = response.clone();

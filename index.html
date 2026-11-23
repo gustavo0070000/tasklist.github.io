@@ -20,7 +20,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
 
   <!-- Vanilla CSS Design System -->
-  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/style.css?v=6">
 </head>
 <body>
 
@@ -1087,9 +1087,9 @@
         <!-- Clima (Open-Meteo) -->
         <div class="settings-block">
           <label class="form-label">🌦️ Clima no Resumo e no Painel</label>
-          <form id="weatherCityForm" class="form-row-2" onsubmit="return false;">
+          <form id="weatherCityForm" class="form-row-2">
             <input type="text" id="inputWeatherCity" class="form-control" placeholder="Cidade (ex: Curitiba)" autocomplete="off">
-            <button type="submit" class="btn-tactile btn-surface-sm">Buscar</button>
+            <button type="submit" id="btnSearchWeatherCity" class="btn-tactile btn-surface-sm">Buscar</button>
           </form>
           <div id="weatherCityResults" class="city-results"></div>
           <p id="weatherCityCurrent" class="settings-hint">Nenhuma cidade definida.</p>
@@ -1297,7 +1297,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
 
   <!-- Main App Entry Module -->
-  <script type="module" src="js/app.js"></script>
+  <script type="module" src="js/app.js?v=6"></script>
 
   <!-- PWA Service Worker Registration -->
   <script>

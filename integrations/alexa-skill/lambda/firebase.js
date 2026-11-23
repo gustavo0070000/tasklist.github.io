@@ -39,7 +39,8 @@ function nextIndex(node) {
   return entries(node).reduce((max, e) => Math.max(max, Number(e.key)), -1) + 1;
 }
 
-const root = () => `tasks/${config.SECRET_KEY}`;
+const secretKey = () => String(config.SECRET_KEY || '').trim().toLowerCase();
+const root = () => `tasks/${secretKey()}`;
 
 async function loadData() {
   return (await get(root())) || {};
@@ -117,6 +118,20 @@ async function completeTask(match) {
   return { task: entry.value };
 }
 
+async function completeTaskById(taskId) {
+  const data = await loadData();
+  const entry = entries(data.tasks).find(e => e.value && e.value.id === taskId);
+  if (!entry) return null;
+  if (entry.value.completed) return entry.value;
+  await patch(`${root()}/tasks/${entry.key}`, {
+    completed: true,
+    completedBy: entry.value.owner || 'Shared',
+    completedAt: new Date().toISOString()
+  });
+  await logHistory(data, 'complete_task', { taskId: entry.value.id, taskTitle: entry.value.title, user: entry.value.owner || 'Shared' });
+  return entry.value;
+}
+
 async function addNote(text) {
   const data = await loadData();
   const note = { id: `n-${Date.now()}`, user: 'Shared', text, color: 'yellow', pinned: false, reactions: {}, timestamp: new Date().toISOString() };
@@ -131,12 +146,16 @@ async function sendNudge(from, text) {
 }
 
 async function loadCalendar() {
-  const cal = (await get(`calendar/${config.SECRET_KEY}`)) || {};
+  const cal = (await get(`calendar/${secretKey()}`)) || {};
   return entries(cal.events).map(e => e.value);
 }
 
-function normalize(s) {
-  return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+async function loadSettings() {
+  return (await get(`settings/${secretKey()}`)) || {};
 }
 
-module.exports = { loadData, loadCalendar, addTask, completeTask, addNote, sendNudge, entries, normalize };
+function normalize(s) {
+  return String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+module.exports = { loadData, loadCalendar, loadSettings, addTask, completeTask, completeTaskById, addNote, sendNudge, entries, normalize };

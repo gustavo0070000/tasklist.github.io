@@ -2,16 +2,27 @@
  * Resumo matinal (gatilho diário em MORNING_HOUR):
  * agenda dos dois + tarefas do dia + clima -> Telegram, push e Echo.
  */
+function safeEscapeHtml_(s) {
+  if (typeof escapeHtml_ === 'function') return escapeHtml_(s);
+  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 function resumoMatinal() {
   var resumo = montarResumo_();
 
-  var group = cfg('TELEGRAM_GROUP_CHAT_ID');
-  if (group) enviarTelegram(group, resumo.html);
-  else ['Gus', 'Isa'].forEach(function (u) { enviarTelegram(telegramDoUsuario_(u), resumo.html); });
+  if (typeof enviarTelegram === 'function') {
+    var group = cfg('TELEGRAM_GROUP_CHAT_ID');
+    if (group) enviarTelegram(group, resumo.html);
+    else if (typeof telegramDoUsuario_ === 'function') {
+      ['Gus', 'Isa'].forEach(function (u) { enviarTelegram(telegramDoUsuario_(u), resumo.html); });
+    }
+  }
 
-  ['Gus', 'Isa'].forEach(function (u) { enviarPush(u, '☀️ Bom dia!', resumo.curto, 'tasklist-morning'); });
+  if (typeof enviarPush === 'function') {
+    ['Gus', 'Isa'].forEach(function (u) { enviarPush(u, '☀️ Bom dia!', resumo.curto, 'tasklist-morning'); });
+  }
 
-  if (cfg('ANNOUNCE_MORNING')) anunciarNaEcho(resumo.falado);
+  if (cfg('ANNOUNCE_MORNING') && typeof anunciarNaEcho === 'function') anunciarNaEcho(resumo.falado);
   return resumo;
 }
 
@@ -31,17 +42,17 @@ function montarResumo_() {
   var pendentes = pendingTasks_(data);
   var doDia = pendentes.filter(function (t) { return t.deadline && new Date(t.deadline) <= fimHoje; });
 
-  var clima = climaDeHoje_();
+  var clima = typeof climaDeHoje_ === 'function' ? climaDeHoje_() : null;
   var dia = Utilities.formatDate(now, tz, 'dd/MM');
 
   var html = '☀️ <b>Bom dia, Gustavo &amp; Isabella!</b> (' + dia + ')\n';
-  if (clima) html += '\n' + escapeHtml_(clima.texto) + '\n';
+  if (clima) html += '\n' + safeEscapeHtml_(clima.texto) + '\n';
 
   html += '\n📅 <b>Agenda de hoje</b>\n';
   if (eventos.length === 0) html += 'Nenhum compromisso 🌿\n';
   eventos.forEach(function (ev) {
     var hora = ev.allDay ? 'Dia todo' : Utilities.formatDate(new Date(ev.start), tz, 'HH:mm');
-    html += '• ' + hora + ' — ' + escapeHtml_(ev.title) + ' <i>(' + OWNER_NAMES[ev.owner] + ')</i>\n';
+    html += '• ' + hora + ' — ' + safeEscapeHtml_(ev.title) + ' <i>(' + (OWNER_NAMES[ev.owner] || ev.owner || 'Ambos') + ')</i>\n';
   });
 
   html += '\n✅ <b>Tarefas para hoje</b> (' + doDia.length + ')\n';
@@ -50,7 +61,7 @@ function montarResumo_() {
     if (lista.length === 0) return;
     html += '<b>' + OWNER_NAMES[owner] + ':</b> ' + lista.map(function (t) {
       var atrasada = new Date(t.deadline) < now ? ' ⚠️' : '';
-      return escapeHtml_(t.title) + atrasada;
+      return safeEscapeHtml_(t.title) + atrasada;
     }).join(', ') + '\n';
   });
   if (doDia.length === 0) html += 'Nada com prazo hoje ✨\n';

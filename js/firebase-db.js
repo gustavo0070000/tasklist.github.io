@@ -457,7 +457,7 @@ export function normalizeCalendar(raw) {
   return { updatedAt: base.updatedAt || null, events };
 }
 
-export function listenToCalendar(callback) {
+export function listenToCalendar(callback, onError) {
   if (isLocalMode()) {
     let raw = null;
     try { raw = JSON.parse(localStorage.getItem(LOCAL_CALENDAR_KEY) || 'null'); } catch (e) { raw = null; }
@@ -467,11 +467,14 @@ export function listenToCalendar(callback) {
   const ref = sectionRef('calendar');
   if (!ref) return () => {};
   const handler = snap => callback(normalizeCalendar(snap.val()));
-  ref.on('value', handler, err => console.warn('Calendário indisponível (verifique as regras do Firebase):', err && err.message));
+  ref.on('value', handler, err => {
+    console.warn('Calendário indisponível (verifique as regras do Firebase):', err && err.message);
+    if (typeof onError === 'function') onError(err);
+  });
   return () => ref.off('value', handler);
 }
 
-export function listenToSettings(callback) {
+export function listenToSettings(callback, onError) {
   if (isLocalMode()) {
     let raw = {};
     try { raw = JSON.parse(localStorage.getItem(LOCAL_SETTINGS_KEY) || '{}'); } catch (e) { raw = {}; }
@@ -482,7 +485,10 @@ export function listenToSettings(callback) {
   const ref = sectionRef('settings');
   if (!ref) return () => {};
   const handler = snap => callback(snap.val() || {});
-  ref.on('value', handler, err => console.warn('Configurações indisponíveis (verifique as regras do Firebase):', err && err.message));
+  ref.on('value', handler, err => {
+    console.warn('Configurações indisponíveis (verifique as regras do Firebase):', err && err.message);
+    if (typeof onError === 'function') onError(err);
+  });
   return () => ref.off('value', handler);
 }
 

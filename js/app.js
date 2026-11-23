@@ -51,7 +51,9 @@ const appState = {
   selectedQuickAddEmoji: '✨',
   draggedTaskId: null,
   calendar: { updatedAt: null, events: [] },   // Google Agenda (nó calendar/{chave})
+  calendarError: null,
   settings: {},                                 // Configurações compartilhadas (nó settings/{chave})
+  settingsError: null,
   weather: null,
   pendingShare: null                            // Conteúdo recebido via "Compartilhar" do celular
 };
@@ -369,6 +371,7 @@ const el = {
   btnCopyPainelLink: document.getElementById('btnCopyPainelLink'),
   weatherCityForm: document.getElementById('weatherCityForm'),
   inputWeatherCity: document.getElementById('inputWeatherCity'),
+  btnSearchWeatherCity: document.getElementById('btnSearchWeatherCity'),
   weatherCityResults: document.getElementById('weatherCityResults'),
   weatherCityCurrent: document.getElementById('weatherCityCurrent'),
   calendarSyncStatus: document.getElementById('calendarSyncStatus'),
@@ -602,17 +605,33 @@ function teardownListeners() {
 
 // Assina os nós de integração (agenda + configurações compartilhadas)
 function subscribeIntegrations() {
-  unsubscribeCalendar = db.listenToCalendar(cal => {
-    appState.calendar = cal;
-    if (appState.dbData && !isTypingInDynamicInput()) renderApp();
-    updateSettingsModalUI();
-  });
-  unsubscribeSettings = db.listenToSettings(settings => {
-    const prevLoc = JSON.stringify((appState.settings || {}).weather || null);
-    appState.settings = settings || {};
-    if (JSON.stringify(appState.settings.weather || null) !== prevLoc) refreshWeather(true);
-    updateSettingsModalUI();
-  });
+  appState.calendarError = null;
+  appState.settingsError = null;
+  unsubscribeCalendar = db.listenToCalendar(
+    cal => {
+      appState.calendarError = null;
+      appState.calendar = cal;
+      if (appState.dbData && !isTypingInDynamicInput()) renderApp();
+      updateSettingsModalUI();
+    },
+    err => {
+      appState.calendarError = (err && (err.code || err.message)) || 'PERMISSION_DENIED';
+      updateSettingsModalUI();
+    }
+  );
+  unsubscribeSettings = db.listenToSettings(
+    settings => {
+      appState.settingsError = null;
+      const prevLoc = JSON.stringify((appState.settings || {}).weather || null);
+      appState.settings = settings || {};
+      if (JSON.stringify(appState.settings.weather || null) !== prevLoc) refreshWeather(true);
+      updateSettingsModalUI();
+    },
+    err => {
+      appState.settingsError = (err && (err.code || err.message)) || 'PERMISSION_DENIED';
+      updateSettingsModalUI();
+    }
+  );
 }
 
 function refreshWeather(force = false) {
@@ -3216,9 +3235,15 @@ function updateSettingsModalUI() {
   }
   if (el.calendarSyncStatus) {
     const cal = appState.calendar || {};
-    el.calendarSyncStatus.textContent = cal.updatedAt
-      ? `✅ ${cal.events.length} compromissos sincronizados ${agenda.relativeSyncLabel(cal.updatedAt)}.`
-      : '⏳ Aguardando o sincronizador (Google Apps Script) gravar os eventos.';
+    if (appState.calendarError) {
+      el.calendarSyncStatus.textContent = '⚠️ Sem permissão no Firebase para ler calendar/. Atualize as Regras do Realtime Database (veja INTEGRACOES.md).';
+    } else if (cal.updatedAt) {
+      el.calendarSyncStatus.textContent = `✅ ${cal.events.length} compromissos sincronizados ${agenda.relativeSyncLabel(cal.updatedAt)}.`;
+    } else {
+      const cfgNow = db.getSavedConfig();
+      const keyHint = cfgNow ? ` (chave ativa: "${cfgNow.secretKey}")` : '';
+      el.calendarSyncStatus.textContent = `⏳ Aguardando o sincronizador (Google Apps Script) gravar os eventos${keyHint}.`;
+    }
   }
   if (el.pushStatusHint) {
     const support = push.pushSupportStatus();
@@ -3234,7 +3259,7 @@ function updateSettingsModalUI() {
 
   const config = db.getSavedConfig();
   if (config) {
-    el.settingsConnectedDb.textContent = config.firebaseConfig.databaseURL;
+    el.settingsConnectedDb.textContent = `${config.firebaseConfig.databaseURL} · chave: ${config.secretKey}`;
     el.btnConnectFirebaseFromLocal.style.display = 'none';
     el.settingsInviteBlock.style.display = 'flex';
     el.btnResetApp.textContent = 'Desconectar Banco';
@@ -3634,6 +3659,7 @@ function setupEventListeners() {
 
   // Settings Modal
   el.btnOpenSettings.addEventListener('click', () => {
+    closeMobileSidebar();
     updateSettingsModalUI();
     const iftttCfg = ifttt.getIftttConfig();
     el.setupIftttKey.value = iftttCfg.key;
@@ -3712,14 +3738,25 @@ function setupEventListeners() {
     renderApp();
   });
 
-  el.weatherCityForm.addEventListener('submit', () => {
+  let weatherSearchInFlight = false;
+  const runWeatherCitySearch = () => {
+    if (weatherSearchInFlight) return;
     const q = el.inputWeatherCity.value.trim();
-    if (q.length < 2) return;
-    el.weatherCityResults.innerHTML = '<span class="settings-hint">Buscando...</span>';
+    if (q.length < 2) {
+      el.weatherCityResults.innerHTML = '<span class="settings-hint">Digite pelo menos 2 letras da cidade (ex: Curitiba).</span>';
+      el.inputWeatherCity.focus();
+      return;
+    }
+    weatherSearchInFlight = true;
+    if (el.btnSearchWeatherCity) {
+      el.btnSearchWeatherCity.disabled = true;
+      el.btnSearchWeatherCity.textContent = 'Buscando...';
+    }
+    el.weatherCityResults.innerHTML = '<span class="settings-hint">Buscando cidades...</span>';
     weather.searchCity(q)
       .then(results => {
         if (results.length === 0) {
-          el.weatherCityResults.innerHTML = '<span class="settings-hint">Nenhuma cidade encontrada.</span>';
+          el.weatherCityResults.innerHTML = '<span class="settings-hint">Nenhuma cidade encontrada. Tente digitar só o nome da cidade (ex: Curitiba).</span>';
           return;
         }
         el.weatherCityResults.innerHTML = results.map((r, i) =>
@@ -3727,18 +3764,50 @@ function setupEventListeners() {
         el.weatherCityResults.querySelectorAll('[data-city-idx]').forEach(btn => {
           btn.addEventListener('click', () => {
             const r = results[Number(btn.getAttribute('data-city-idx'))];
+            btn.disabled = true;
             db.updateSettings('weather', r)
               .then(() => {
+                appState.settings = { ...(appState.settings || {}), weather: r };
+                refreshWeather(true);
+                updateSettingsModalUI();
                 el.weatherCityResults.innerHTML = '';
                 el.inputWeatherCity.value = '';
                 showToast(`Clima configurado para ${r.name}! 🌦️`);
               })
-              .catch(() => showToast('Erro ao salvar cidade. Atualize as regras do Firebase (settings).', 'error'));
+              .catch(err => {
+                btn.disabled = false;
+                console.error('Erro ao salvar cidade:', err);
+                el.weatherCityResults.innerHTML = '<span class="settings-hint">⚠️ Permissão negada no Firebase para salvar <code>settings/</code>. Publique as regras da seção 1 de INTEGRACOES.md.</span>';
+                showToast('Erro ao salvar cidade. Atualize as regras do Firebase (settings).', 'error');
+              });
           });
         });
       })
-      .catch(() => { el.weatherCityResults.innerHTML = '<span class="settings-hint">Erro ao buscar cidade.</span>'; });
-  });
+      .catch(err => {
+        console.error('Erro ao buscar cidade:', err);
+        el.weatherCityResults.innerHTML = `<span class="settings-hint">Erro ao buscar cidade (${escapeHTML(err && err.message ? err.message : 'sem conexão')}). Tente novamente.</span>`;
+      })
+      .finally(() => {
+        weatherSearchInFlight = false;
+        if (el.btnSearchWeatherCity) {
+          el.btnSearchWeatherCity.disabled = false;
+          el.btnSearchWeatherCity.textContent = 'Buscar';
+        }
+      });
+  };
+
+  if (el.weatherCityForm) {
+    el.weatherCityForm.addEventListener('submit', e => {
+      e.preventDefault();
+      runWeatherCitySearch();
+    });
+  }
+  if (el.btnSearchWeatherCity) {
+    el.btnSearchWeatherCity.addEventListener('click', e => {
+      e.preventDefault();
+      runWeatherCitySearch();
+    });
+  }
 
   el.btnSavePushConfig.addEventListener('click', () => {
     const value = {
