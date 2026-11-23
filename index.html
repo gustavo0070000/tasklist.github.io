@@ -1302,9 +1302,20 @@
   <!-- PWA Service Worker Registration -->
   <script>
     if ('serviceWorker' in navigator) {
+      const hadController = Boolean(navigator.serviceWorker.controller);
+      let swReloaded = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (hadController && !swReloaded) {
+          swReloaded = true;
+          window.location.reload();
+        }
+      });
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('./sw.js')
-          .then(reg => console.log('Service Worker registrado:', reg.scope))
+          .then(reg => {
+            reg.update().catch(() => {});
+            console.log('Service Worker registrado:', reg.scope);
+          })
           .catch(err => console.log('Service Worker indisponível:', err));
       });
     }
